@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+/vendor/
+/storage/*
+!/storage/.gitkeep
+*.log
+*.sqlite
+*.db
+*.pem
+*.key
