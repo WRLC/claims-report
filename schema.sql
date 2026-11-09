@@ -8,8 +8,6 @@ CREATE TABLE institutions (
   timezone VARCHAR(64) NOT NULL DEFAULT 'America/New_York',
   search_interval_days TINYINT UNSIGNED NOT NULL DEFAULT 7,
   active TINYINT(1) NOT NULL DEFAULT 1,
-  failed_login_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-  locked_until DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -19,8 +17,10 @@ CREATE TABLE users (
   email VARCHAR(254) NOT NULL,
   display_name VARCHAR(160) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role ENUM('admin','staff','viewer') NOT NULL DEFAULT 'staff',
+  role ENUM('user','super_user','admin') NOT NULL DEFAULT 'user',
   active TINYINT(1) NOT NULL DEFAULT 1,
+  failed_login_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  locked_until DATETIME NULL,
   last_login_at DATETIME NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_user_email (email),
