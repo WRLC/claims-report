@@ -19,19 +19,26 @@ A multi-institution staff tracker for Claims Returned cases. Each staff login is
 6. Configure the member slugs and matching `ALMA_KEY_<SLUG>` environment values. For example, slug `gw-law` maps to `ALMA_KEY_GW_LAW`.
 7. Run locally with `php -S 127.0.0.1:8080 -t .` and visit `/login.php`.
 
+When upgrading an existing database, run `php bin/migrate-access-levels.php` once before using the new access levels. Existing `staff` and `viewer` accounts become `user`; existing `admin` accounts remain admins.
+
 For the first test-server deployment, keep `ALMA_ENABLE_NOTE_UPDATES=false`; validate read access and the case workflow first. Then enable it only after confirming the institution's note type, API permissions, and update behavior in an Alma sandbox. The updater reads the full patron object, preserves the returned note list, appends a private internal note, and sends the full object back because Alma's user update operation can replace user segments. Test this carefully with representative internal and externally managed patron records before production.
 
 ## Credentials and multi-institution boundaries
 
 - API keys, database credentials, Twilio credentials, and `APP_KEY` belong in server environment variables or a secret manager (for Azure, use App Service settings/Key Vault references).
 - The repository contains no institution credentials. Never copy the local `key-checker` configuration into this project.
-- Each user is attached to one institution; every staff query is filtered to that institution. Partner links are random, hashed, and limited to partner search status for one case. They reveal only the item/search fields needed by the lending library.
+- User accounts are attached to one institution. `user` accounts manage submissions at their institution, `super_user` accounts manage submissions across institutions, and `admin` accounts manage submissions and user accounts. Only admins can open the Admin page.
+- Partner links are random, hashed, and limited to partner search status for one case. They reveal only the item/search fields needed by the lending library.
 - Use an approved database and retention policy for patron identifiers, contact data, and case history. Back up and restrict database access independently of the web app.
 - Notifications are event-triggered and logged by channel, recipient, and delivery status. `mail()` requires a configured host mail service. SMS requires Twilio credentials and E.164 phone numbers. Failed messages are recorded; staff should retry or use a manual message.
 
 ## Workflow
 
 Opening a case creates Search 1 and schedules the first due date (default seven days). The member's `search_interval_days` controls the default spacing; staff may adjust a case's due date. Completing a search writes its timestamp and staff member, advances the stage, attempts an Alma note update, and sends the configured patron notice. Search 4 advances to final resolution. “Found” and “Not found” close the case and send the final outcome. CLS/P2P/ILL cases can email/text the partner and include a scoped link for updating partner search status.
+
+## User accounts
+
+Admins can find accounts by name, email, or institution; look up a staff member by Alma user ID to prefill a new account; assign an institution and access level; disable accounts; and set new passwords. Passwords are stored as one-way hashes and cannot be extracted. Admins reset them by entering a replacement password.
 
 ## Azure Web App
 
