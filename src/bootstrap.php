@@ -1,5 +1,17 @@
 <?php
 declare(strict_types=1);
+$claimsEnvFile='/etc/claims-report/claims-report.env';
+if(is_readable($claimsEnvFile)){
+ foreach(file($claimsEnvFile,FILE_IGNORE_NEW_LINES)?:[] as $line){
+  $line=trim($line);if($line===''||str_starts_with($line,'#'))continue;
+  if(str_starts_with($line,'export '))$line=substr($line,7);
+  $equals=strpos($line,'=');if($equals===false)continue;
+  $key=trim(substr($line,0,$equals));if(!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/',$key)||getenv($key)!==false)continue;
+  $value=trim(substr($line,$equals+1));
+  if(strlen($value)>=2&&(($value[0]==='"'&&$value[strlen($value)-1]==='"')||($value[0]==="'"&&$value[strlen($value)-1]==="'")))$value=substr($value,1,-1);
+  putenv($key.'='.$value);$_ENV[$key]=$value;$_SERVER[$key]=$value;
+ }
+}
 session_name('claims_session');
 session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>filter_var(getenv('SESSION_SECURE')?:'false',FILTER_VALIDATE_BOOLEAN),'httponly'=>true,'samesite'=>'Lax']);
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
