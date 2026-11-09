@@ -40,5 +40,5 @@ Deploy the PHP application to an Azure App Service configured for PHP 8.2+ and c
 ## Notes
 
 - This first implementation uses password-based local staff accounts. An institution may later add SSO (OIDC/SAML) behind the same institution-scoped authorization model.
-- Partner links are bearer links; configure an expiry/rotation policy before production. They do not grant access to the staff queue.
+- Partner links are random bearer links, stored only as hashes, and expire after 90 days or when the case closes. They do not grant access to the staff queue.
 - Institutional differences such as search intervals, note types, partner messaging, and retention should be agreed by the consortium and configured before rollout.

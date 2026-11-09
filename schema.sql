@@ -49,6 +49,7 @@ CREATE TABLE claims_cases (
   partner_requested_at DATETIME NULL,
   partner_completed_at DATETIME NULL,
   partner_token_hash CHAR(64) NULL,
+  partner_token_expires_at DATETIME NULL,
   stage ENUM('search_1','search_2','search_3','search_4','resolution','closed') NOT NULL DEFAULT 'search_1',
   search_1_at DATETIME NULL, search_1_by BIGINT UNSIGNED NULL, search_1_result TEXT NULL,
   search_2_at DATETIME NULL, search_2_by BIGINT UNSIGNED NULL, search_2_result TEXT NULL,
