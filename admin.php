@@ -6,7 +6,7 @@ function admin_role_label(string $role): string {
     return match($role){'super_user'=>'Super user','admin'=>'Admin','staff','viewer'=>'User',default=>'User'};
 }
 function admin_institution_options(array $institutions,int $selected): string {
-    $html='';foreach($institutions as $institution)$html.='<option value="'.(int)$institution['id'].'" '.($selected===(int)$institution['id']?'selected':'').'>'.h($institution['name']).'</option>';
+    $html='';foreach($institutions as $institution)$html.='<option value="'.(int)$institution['id'].'" '.($selected===(int)$institution['id']?'selected':'').'>'.h(institution_label((string)$institution['name'])).'</option>';
     return $html;
 }
 function admin_password_is_valid(string $password,string $confirmation): bool {
@@ -16,7 +16,7 @@ function admin_password_is_valid(string $password,string $confirmation): bool {
 $institutionNames=[
     'gw'=>'George Washington University','au'=>'American University','cua'=>'Catholic University of America',
     'udc'=>'University of the District of Columbia','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University',
-    'georgetown'=>'Georgetown University','howard'=>'Howard University','marymount'=>'Marymount University',
+    'georgetown'=>'Georgetown University','howard'=>'Howard University','marymount'=>'Marymount University','scf'=>'WRLC','scf'=>'WRLC',
 ];
 $configuredMembers=array_values(array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))),static fn(string $slug): bool=>$slug!==''&&alma_key($slug)!==''));
 $institutionLookup=db()->prepare('SELECT id,active FROM institutions WHERE slug=? LIMIT 1');
@@ -128,7 +128,7 @@ if($edit){echo '<section class="card"><h2>Edit account</h2><form method="post" c
 
 if($screen===''||$edit){
 echo '<section class="card"><h2>Find accounts</h2><form method="get" class="lookup-row"><label>Name, email, or institution<input name="q" value="'.h($search).'"></label><label>Institution<select name="institution_id"><option value="0">All institutions</option>'.admin_institution_options($institutions,$filterInstitution).'</select></label><label>Access level<select name="role"><option value="">All levels</option>';foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.($filterRole===$value?'selected':'').'>'.h($label).'</option>';echo '</select></label><button>Search</button></form><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Institution</th><th>Access</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>';
-foreach($accounts as $account)echo '<tr><td>'.h($account['display_name']).'</td><td>'.h($account['email']).'</td><td>'.h($account['institution_name']).'</td><td>'.h(admin_role_label($account['role'])).'</td><td>'.((int)$account['active']?'Active':'Disabled').'</td><td>'.h($account['last_login_at']?:'Never').'</td><td><a href="admin.php?edit='.(int)$account['id'].'">Edit</a></td></tr>';
+foreach($accounts as $account)echo '<tr><td>'.h($account['display_name']).'</td><td>'.h($account['email']).'</td><td>'.h(institution_label((string)$account['institution_name'])).'</td><td>'.h(admin_role_label($account['role'])).'</td><td>'.((int)$account['active']?'Active':'Disabled').'</td><td>'.h($account['last_login_at']?:'Never').'</td><td><a href="admin.php?edit='.(int)$account['id'].'">Edit</a></td></tr>';
 if(!$accounts)echo '<tr><td colspan="7" class="empty">No accounts found.</td></tr>';
 echo '</tbody></table></div><small>Showing up to 200 accounts.</small></section>';
 }
