@@ -16,3 +16,6 @@ main:has(.persistent-sections)>.patron-account{order:4}
 .patron-notes-accordion>summary{cursor:pointer;font-weight:650;color:#20546b}
 .note-delivery{display:inline-block;margin:8px 8px 0 0;border-radius:5px;background:#edf4f6;padding:4px 8px;color:#345766;font-size:12px}
 .custom-patron-note-form{border-bottom:1px solid #e8edef;padding-bottom:18px;margin-bottom:18px}.custom-patron-note-form p{margin:-5px 0 12px;font-size:13px}
+
+.claims-queue th:nth-child(7),.claims-queue td:nth-child(7),.claims-queue th:nth-child(8),.claims-queue td:nth-child(8){white-space:nowrap}
+.claims-queue th:nth-child(6),.claims-queue td:nth-child(6){white-space:nowrap}
