@@ -19,7 +19,7 @@ A multi-institution staff tracker for Claims Returned cases. Each staff login is
 6. Configure the member slugs and matching `ALMA_KEY_<SLUG>` environment values. For example, slug `gw-law` maps to `ALMA_KEY_GW_LAW`.
 7. Run locally with `php -S 127.0.0.1:8080 -t .` and visit `/login.php`.
 
-When upgrading an existing database, run `php bin/migrate-access-levels.php` once before using the new access levels. Existing `staff` and `viewer` accounts become `user`; existing `admin` accounts remain admins. Run `php bin/migrate-email-only.php` once to convert SMS or combined notice preferences to email when an address exists, otherwise to manual / none.
+When upgrading an existing database, run `php bin/migrate-access-levels.php` once before using the new access levels. Existing `staff` and `viewer` accounts become `user`; existing `admin` accounts remain admins. Run `php bin/migrate-email-only.php` once to convert SMS or combined notice preferences to email when an address exists, otherwise to manual / none. Run `php bin/migrate-partner-notifications.php` once to add the partner email notification preference.
 
 For the first test-server deployment, keep `ALMA_ENABLE_NOTE_UPDATES=false`; validate read access and the case workflow first. Then enable it only after confirming the institution's note type, API permissions, and update behavior in an Alma sandbox. The updater reads the full patron object, preserves the returned note list, appends a private internal note, and sends the full object back because Alma's user update operation can replace user segments. Test this carefully with representative internal and externally managed patron records before production.
 
@@ -34,7 +34,7 @@ For the first test-server deployment, keep `ALMA_ENABLE_NOTE_UPDATES=false`; val
 
 ## Workflow
 
-Opening a case creates Search 1 and schedules the first due date (default seven days). The member's `search_interval_days` controls the default spacing; staff may adjust a case's due date. Completing a search writes its timestamp and staff member, advances the stage, attempts an Alma note update, and sends the configured email notice. Search 4 advances to final resolution. “Found” and “Not found” close the case and send the final outcome. CLS/P2P/ILL cases can email the partner and include a scoped link for updating partner search status.
+Opening a case creates Search 1 and schedules the first due date (default seven days). The member's `search_interval_days` controls the default spacing; staff may adjust a case's due date. Completing a search writes its timestamp and staff member, advances the stage, attempts an Alma note update, and sends the configured email notice. Search 4 advances to final resolution. “Found” and “Not found” close the case and send the final outcome. CLS/P2P/ILL cases can store a partner library and email address; when partner email notifications are enabled, the partner receives the search request and a scoped link for updating its status.
 
 ## User accounts
 
