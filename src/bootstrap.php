@@ -72,26 +72,17 @@ function alma_append_claim_note(array $case,string $note): array {
  if(!filter_var(envv('ALMA_ENABLE_NOTE_UPDATES','false'),FILTER_VALIDATE_BOOLEAN))return ['ok'=>false,'skipped'=>true,'error'=>'Alma note updates are disabled by configuration.'];$path='/users/'.rawurlencode((string)$case['patron_primary_id']).'?user_id_type=all_unique&view=full&expand=none';$got=alma_request((string)$case['institution_slug'],$path);if(!$got['ok']||!is_array($got['data']))return ['ok'=>false,'error'=>'Could not read the full Alma user record before updating the note.'];$r=$got['data'];$notes=$r['user_notes']['user_note']??[];if(isset($notes['note_text']))$notes=[$notes];if(!is_array($notes))$notes=[];$notes[]=['note_type'=>['value'=>envv('ALMA_CLAIMS_NOTE_TYPE','OTHER')],'note_text'=>$note,'user_viewable'=>false,'popup_note'=>false,'segment_type'=>'Internal'];$r['user_notes']=['user_note'=>$notes];$saved=alma_request((string)$case['institution_slug'],$path,'PUT',$r);return ['ok'=>$saved['ok'],'error'=>$saved['error']??''];
 }
 function save_notification(int $cid,string $channel,string $recipient,string $template,bool $ok,string $error=''): array { $q=db()->prepare('INSERT INTO notification_log(case_id,channel,recipient,template_key,status,error_text) VALUES(?,?,?,?,?,?)');$q->execute([$cid,$channel,$recipient,$template,$ok?'sent':'failed',$error?:null]);event($cid,'notification_'.$channel,($ok?'Sent ':'Failed ').$channel.' notification',['template'=>$template,'recipient'=>$recipient,'error'=>$error]);return ['channel'=>$channel,'ok'=>$ok,'error'=>$error]; }
-function send_sms(int $cid,string $to,string $template,string $body): array {
- $sid=envv('TWILIO_ACCOUNT_SID');$token=envv('TWILIO_AUTH_TOKEN');$from=envv('TWILIO_FROM_NUMBER');
- if(!$sid||!$token||!$from)return save_notification($cid,'sms',$to,$template,false,'SMS is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_FROM_NUMBER in the server configuration.');
- if(!preg_match('/^\+[1-9]\d{7,14}$/',trim($to)))return save_notification($cid,'sms',$to,$template,false,'Recipient phone must use E.164 format, such as +12025550123.');
- if(!preg_match('/^\+[1-9]\d{7,14}$/',trim($from)))return save_notification($cid,'sms',$to,$template,false,'Twilio sender number must use E.164 format.');
- $ch=curl_init('https://api.twilio.com/2010-04-01/Accounts/'.rawurlencode($sid).'/Messages.json');
- if($ch===false)return save_notification($cid,'sms',$to,$template,false,'Could not initialize the Twilio request.');
- curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_RETURNTRANSFER=>true,CURLOPT_USERPWD=>$sid.':'.$token,CURLOPT_POSTFIELDS=>http_build_query(['To'=>trim($to),'From'=>trim($from),'Body'=>mb_substr($body,0,1500)]),CURLOPT_TIMEOUT=>15,CURLOPT_CONNECTTIMEOUT=>5]);
- $resp=curl_exec($ch);$err=curl_error($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$j=json_decode($resp?:'',true);
- $ok=$err===''&&$status>=200&&$status<300;$providerId=is_array($j)?($j['sid']??null):null;
- $error='';
- if(!$ok){
-  if($err!=='')$error='Twilio connection failed: '.$err;
-  else{$code=is_array($j)?($j['code']??null):null;$message=is_array($j)?($j['message']??null):null;$error='Twilio rejected the message (HTTP '.$status.($code?' / '.$code:'').')'.($message?': '.$message:'');}
- }
- $q=db()->prepare('INSERT INTO notification_log(case_id,channel,recipient,template_key,status,provider_id,error_text) VALUES(?,?,?,?,?,?,?)');$q->execute([$cid,'sms',$to,$template,$ok?'sent':'failed',$providerId,$ok?null:mb_substr($error,0,500)]);
- event($cid,'notification_sms',($ok?'Sent':'Failed').' SMS notification',['template'=>$template,'recipient'=>$to,'provider_id'=>$providerId,'error'=>$error]);
- return ['channel'=>'sms','ok'=>$ok,'error'=>$error];
+function email_only_preference(array $case): string {
+ $preference=(string)($case['patron_notice_channel']??'email');
+ if(in_array($preference,['email','none'],true))return $preference;
+ return trim((string)($case['patron_email']??''))!==''?'email':'none';
 }
-function notify_case(array $c,string $template,string $subject,string $body,?string $email=null,?string $phone=null): array { $channel=str_starts_with($template,'partner_')?'partner':$c['patron_notice_channel'];if($channel==='none')return [];$to=$channel==='partner'?$c['partner_email']:($email?:$c['patron_email']);$mobile=$channel==='partner'?$c['partner_phone']:($phone?:$c['patron_phone']);$out=[];if(in_array($channel,['email','both','partner'],true)&&$to){$headers=['From: '.envv('MAIL_FROM_NAME','WRLC Claims Returned').' <'.envv('MAIL_FROM','claims@localhost').'>','Content-Type: text/plain; charset=UTF-8'];$ok=@mail($to,$subject,$body,implode("\r\n",$headers));$out[]=save_notification((int)$c['id'],'email',$to,$template,$ok,$ok?'':'mail() rejected the message.');}if(in_array($channel,['sms','both','partner'],true))$out[]=send_sms((int)$c['id'],(string)$mobile,$template,$body);return $out; }
+function notify_case(array $c,string $template,string $subject,string $body,?string $email=null): array {
+ $channel=str_starts_with($template,'partner_')?'partner':email_only_preference($c);if($channel==='none')return [];
+ $to=$channel==='partner'?$c['partner_email']:($email?:$c['patron_email']);if(!$to)return [];
+ $headers=['From: '.envv('MAIL_FROM_NAME','WRLC Claims Returned').' <'.envv('MAIL_FROM','claims@localhost').'>','Content-Type: text/plain; charset=UTF-8'];
+ $ok=@mail($to,$subject,$body,implode("\r\n",$headers));return [save_notification((int)$c['id'],'email',$to,$template,$ok,$ok?'':'mail() rejected the message.')];
+}
 function notice_message(array $c,string $text): array { $details="Item details:\nTitle: {$c['item_title']}\nBarcode: ".($c['item_barcode']?:'Not available')."\nAuthor: ".($c['item_author']?:'Not available')."\nMMS ID: ".($c['item_mms_id']?:'Not available');$body="Hello {$c['patron_name']},\n\n{$text}\n\n{$details}\nCase: {$c['public_id']}\n\nPlease contact your library if you have questions.";return notify_case($c,'milestone','Claims Returned update: '.$c['item_title'],$body); }
 function render_start(string $title): void { $f=take_flash();$u=user();echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'.h($title).' · Claims Returned</title><link rel="stylesheet" href="assets/app.css"></head><body><header><a class="brand" href="index.php">WRLC <span>Claims Returned</span></a><nav>';if(logged_in()){echo '<span>'.h($u['display_name']).' · '.h(institution_label((string)$u['institution_name'])).'</span>';if(can_manage_accounts())echo '<a href="admin.php">Admin</a>';echo '<a href="logout.php">Sign out</a>';}echo '</nav></header><main>';if($f)echo '<div class="flash '.h($f[1]).'">'.h($f[0]).'</div>'; }
 function render_end(): void { echo '</main><footer>Claims Returned · Consortium case tracking</footer></body></html>'; }
