@@ -13,6 +13,23 @@ function admin_password_is_valid(string $password,string $confirmation): bool {
     return strlen($password)>=12&&hash_equals($password,$confirmation);
 }
 
+$institutionNames=[
+    'gw'=>'George Washington University','au'=>'American University','cua'=>'Catholic University of America',
+    'udc'=>'University of the District of Columbia','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University',
+    'georgetown'=>'Georgetown University','howard'=>'Howard University','marymount'=>'Marymount University',
+];
+$configuredMembers=array_values(array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))),static fn(string $slug): bool=>$slug!==''&&alma_key($slug)!==''));
+$institutionLookup=db()->prepare('SELECT id,active FROM institutions WHERE slug=? LIMIT 1');
+$activateInstitution=db()->prepare('UPDATE institutions SET active=1 WHERE id=?');
+$addInstitution=db()->prepare('INSERT INTO institutions(slug,name,alma_code,active) VALUES(?,?,?,1)');
+foreach($configuredMembers as $member){
+    $institutionLookup->execute([$member]);
+    $existingInstitution=$institutionLookup->fetch();
+    if(!$existingInstitution){
+        $name=$institutionNames[$member]??ucwords(str_replace(['-','_'],' ',$member));
+        $addInstitution->execute([$member,$name,$member]);
+    }elseif(!(int)$existingInstitution['active'])$activateInstitution->execute([(int)$existingInstitution['id']]);
+}
 $institutions=db()->query('SELECT id,name,slug FROM institutions WHERE active=1 ORDER BY name')->fetchAll();
 $roles=['user'=>'User','super_user'=>'Super user','admin'=>'Admin'];
 $create=['institution_id'=>tenant_id(),'identifier'=>'','display_name'=>'','email'=>'','role'=>'user'];
