@@ -18,3 +18,4 @@ main:has(.persistent-sections)>.patron-account{order:4}
 .custom-patron-note-form{border-bottom:1px solid #e8edef;padding-bottom:18px;margin-bottom:18px}.custom-patron-note-form p{margin:-5px 0 12px;font-size:13px}
 
 .claims-queue th:nth-child(7),.claims-queue td:nth-child(7),.claims-queue th:nth-child(8),.claims-queue td:nth-child(8){white-space:nowrap}
+.claims-queue th:nth-child(6),.claims-queue td:nth-child(6){white-space:nowrap}
