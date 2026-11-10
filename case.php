@@ -156,11 +156,49 @@ if(!$case){
     echo '<section class="card"><h2>Resources</h2><ul><li><a href="https://www.libraries.wrlc.org/resource-sharing-wrlc-systems-support/consortium-loan-service-cls-contact-list" target="_blank" rel="noopener noreferrer">CLS Contact List</a></li></ul></section>';
 }else{
     $events=db()->prepare('SELECT e.*,u.display_name FROM case_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.case_id=? ORDER BY e.created_at DESC');$events->execute([$id]);$history=$events->fetchAll();$staffq=db()->prepare('SELECT id,display_name FROM users WHERE institution_id=? AND active=1 ORDER BY display_name');$staffq->execute([(int)$case['institution_id']]);$staff=$staffq->fetchAll();$finalSearch=search_final_number($case);$visibleSteps=$case['stage']==='closed'?$finalSearch:4;
-    echo '<div class="page-title"><div><p class="eyebrow">'.h($case['institution_name']).' · '.h($case['public_id']).'</p><h1>'.h($case['item_title']).'</h1><p class="muted">'.h($case['patron_name']).' · '.h($case['patron_primary_id']).'</p></div><a href="index.php">← Queue</a></div><div class="detail-grid"><section class="card"><h2>Case progress</h2><ol class="steps">';
+    echo '<div class="page-title"><div><p class="eyebrow">'.h($case['institution_name']).' · '.h($case['public_id']).'</p><h1>'.h($case['item_title']).'</h1><p class="muted">'.h($case['patron_name']).' · '.h($case['patron_primary_id']).'</p></div><a href="index.php">← Queue</a></div><section class="card patron-account"><h2>Patron account</h2><details id="patron-account-details" data-url="patron-account.php?id='.$id.'"><summary>View current full account information</summary><p class="muted account-info-status">Current account details will load from Alma when expanded.</p><div class="account-info-data"></div></details></section><div class="detail-grid"><section class="card"><h2>Case progress</h2><ol class="steps">';
     for($n=1;$n<=$visibleSteps;$n++){$status=search_status($case,$n);$done=!empty($case['search_'.$n.'_at']);echo '<li class="'.($done?'done':'').'"><span class="step-edit">';if(can_edit())echo '<a class="button secondary edit-search" href="case.php?id='.$id.'&edit_search='.$n.'">Edit</a>';echo '</span><strong>Search '.$n.'</strong><span class="step-status">'.h(search_label($status)).'</span>';if($done)echo '<small>'.h($case['search_'.$n.'_result']??'').'</small>';echo '</li>';}
     echo '<li class="'.($case['stage']==='closed'?'done':'').'"><span class="step-edit"></span><strong>Final resolution</strong><span class="step-status">'.h($case['resolution']?search_label($case['resolution']):'Pending').'</span>';if($case['resolution_note'])echo '<small>'.h($case['resolution_note']).'</small>';echo '</li></ol><p><strong>Partner:</strong> '.h($case['loan_type']).' · '.h(str_replace('_',' ',$case['partner_status'])).'</p><p><strong>Next action:</strong> '.h($case['next_action_at']?:'—').'</p></section><section class="card"><h2>'.($editSearch?'Edit Search '.$editSearch:'Staff action').'</h2>';
     if(can_edit()&&$editSearch>=1&&$editSearch<=4){$status=search_status($case,$editSearch)?:'not_found';echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="save_search"><input type="hidden" name="search_number" value="'.$editSearch.'"><label>Status<select name="search_status"><option value="not_found" '.($status==='not_found'?'selected':'').'>Not found</option><option value="complete" '.($status==='complete'?'selected':'').'>Complete — item found</option></select></label><label>Search notes<textarea name="search_note" rows="5">'.h($case['search_'.$editSearch.'_result']??'').'</textarea></label><button>Save search</button></form>';}elseif(can_edit()&&$case['stage']!=='closed'){$n=(int)substr((string)$case['stage'],6);echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="save_search"><input type="hidden" name="search_number" value="'.$n.'"><label>Status<select name="search_status"><option value="not_found">Not found — continue searching</option><option value="complete">Complete — item found</option></select></label><label>Search notes<textarea name="search_note" rows="5"></textarea></label><button>Save Search '.$n.'</button></form><hr><form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Assigned staff<select name="assigned_to"><option value="">Unassigned</option>';foreach($staff as $s)echo '<option value="'.(int)$s['id'].'" '.((int)$case['assigned_to']===(int)$s['id']?'selected':'').'>'.h($s['display_name']).'</option>';echo '</select></label><input type="hidden" name="action" value="update"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Next search date<input type="date" name="next_action_at" value="'.h($case['next_action_at']?substr($case['next_action_at'],0,10):'').'"></label><label>Partner status<select name="partner_status">';foreach(['not_required','pending','requested','in_progress','complete','not_found'] as $s)echo '<option value="'.h($s).'" '.($case['partner_status']===$s?'selected':'').'>'.h(str_replace('_',' ',$s)).'</option>';echo '</select></label><button class="secondary">Save assignment</button></form>';}else{echo '<p>This case is closed.</p>';if(can_edit())echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="reopen"><button>Reopen case</button></form>';}
     echo '</section></div><section class="card history"><h2>Activity history</h2><ul>';foreach($history as $e)echo '<li><time>'.h(date('M j, Y g:i a',strtotime($e['created_at']))).'</time><strong>'.h($e['summary']).'</strong><span>'.h($e['display_name']??'System').'</span></li>';echo '</ul></section>';
     echo '<div class="detail-grid persistent-sections"><section class="card"><h2>Assigned staff</h2><form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="update"><label>Assigned staff<select name="assigned_to" '.(can_edit()?'':'disabled').'><option value="">Unassigned</option>';foreach($staff as $s)echo '<option value="'.(int)$s['id'].'" '.((int)$case['assigned_to']===(int)$s['id']?'selected':'').'>'.h($s['display_name']).'</option>';echo '</select></label><label>Next search date<input type="date" name="next_action_at" value="'.h($case['next_action_at']?substr($case['next_action_at'],0,10):'').'" '.(can_edit()?'':'disabled').'></label><label>Partner status<select name="partner_status" '.(can_edit()?'':'disabled').'>';foreach(['not_required','pending','requested','in_progress','complete','not_found'] as $s)echo '<option value="'.h($s).'" '.($case['partner_status']===$s?'selected':'').'>'.h(str_replace('_',' ',$s)).'</option>';echo '</select></label>';if(can_edit())echo '<button class="secondary">Save assignment</button>';echo '</form></section><section class="card"><h2>Patron contact</h2><form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="update_contact"><label>Email<input type="email" name="patron_email" value="'.h($case['patron_email']??'').'" '.(can_edit()?'':'disabled').'></label><label>Notification preference<select name="patron_notice_channel" '.(can_edit()?'':'disabled').'><option value="email" '.($case['patron_notice_channel']==='email'?'selected':'').'>Email</option><option value="none" '.($case['patron_notice_channel']==='none'?'selected':'').'>Manual / none</option></select></label>';if(can_edit())echo '<button class="secondary">Save patron contact</button>';echo '</form></section></div>';
+}
+if($case){
+    echo '<script>
+(()=>{
+ const panel=document.getElementById("patron-account-details");
+ if(!panel)return;
+ const status=panel.querySelector(".account-info-status");
+ const output=panel.querySelector(".account-info-data");
+ const labelFor=value=>String(value).replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+ const render=(label,value,parent,insideNotes=false)=>{
+  if(value!==null&&typeof value==="object"){
+   const group=document.createElement("details");
+   group.className="account-info-group";
+   const noteBranch=insideNotes||/notes?/i.test(String(label));
+   group.open=noteBranch;
+   const summary=document.createElement("summary");summary.textContent=labelFor(label);group.append(summary);
+   const entries=Array.isArray(value)?value.map((item,index)=>[Array.isArray(value)&&typeof item==="object"?"Record "+(index+1):String(index+1),item]):Object.entries(value);
+   if(!entries.length){const empty=document.createElement("p");empty.textContent="No values.";group.append(empty);}
+   for(const [key,item] of entries)render(key,item,group,noteBranch);
+   parent.append(group);return;
+  }
+  const row=document.createElement("div");row.className="account-info-field";
+  const term=document.createElement("dt");term.textContent=labelFor(label);
+  const detail=document.createElement("dd");detail.textContent=value===null||value===""?"—":typeof value==="boolean"?(value?"Yes":"No"):String(value);
+  row.append(term,detail);parent.append(row);
+ };
+ panel.addEventListener("toggle",async()=>{
+  if(!panel.open)return;
+  status.hidden=false;status.textContent="Loading current account information from Alma…";output.replaceChildren();
+  try{
+   const response=await fetch(panel.dataset.url,{credentials:"same-origin",headers:{Accept:"application/json"}});
+   const result=await response.json();
+   if(!response.ok||!result.ok)throw new Error(result.error||"Could not load this account.");
+   status.hidden=true;render("Account",result.data,output);
+  }catch(error){status.textContent=error.message||"Could not load this account.";}
+ });
+})();
+</script>';
 }
 render_end();
