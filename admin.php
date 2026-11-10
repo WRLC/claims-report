@@ -16,28 +16,30 @@ function admin_password_is_valid(string $password,string $confirmation): bool {
 $institutions=db()->query('SELECT id,name,slug FROM institutions WHERE active=1 ORDER BY name')->fetchAll();
 $roles=['user'=>'User','super_user'=>'Super user','admin'=>'Admin'];
 $create=['institution_id'=>tenant_id(),'identifier'=>'','display_name'=>'','email'=>'','role'=>'user'];
-$edit=null;$error='';$message='';
+$edit=null;$error='';$message='';$screen=(string)($_GET['add']??'');$lookupLoaded=false;
 
 if($_SERVER['REQUEST_METHOD']==='POST'){
     csrf_check();$action=(string)($_POST['action']??'');
     if($action==='lookup'){
-        $create['institution_id']=(int)($_POST['institution_id']??0);$create['identifier']=trim((string)($_POST['identifier']??''));
-        $institutionQuery=db()->prepare('SELECT id,slug FROM institutions WHERE id=? AND active=1');$institutionQuery->execute([$create['institution_id']]);$lookupInstitution=$institutionQuery->fetch();
-        if(!$lookupInstitution||$create['identifier']==='')$error='Choose an institution and enter an Alma user ID.';
+        $screen='alma';$create['identifier']=trim((string)($_POST['identifier']??''));
+        if($create['identifier']==='')$error='Enter an Alma user ID.';
         else{
-            $result=alma_lookup_user($lookupInstitution['slug'],$create['identifier']);
+            $result=alma_lookup_user('', $create['identifier']);
             if(!$result['ok'])$error=$result['error'];
             else{
                 $person=$result['data'];$create['display_name']=trim((string)($person['full_name']??trim((string)($person['first_name']??'').' '.(string)($person['last_name']??''))));
                 $emails=$person['contact_info']['email']??[];if(isset($emails['email_address']))$emails=[$emails];$email='';
                 foreach((array)$emails as $record)if(!empty($record['email_address'])){$email=(string)$record['email_address'];if(filter_var($record['preferred']??false,FILTER_VALIDATE_BOOLEAN))break;}
-                $create['email']=strtolower(trim($email));$member=(string)($person['_alma_member']??$lookupInstitution['slug']);$matched=array_values(array_filter($institutions,static fn(array $i): bool=>$i['slug']===$member));
+                $create['email']=strtolower(trim($email));$member=(string)($person['_alma_member']??'');$matched=array_values(array_filter($institutions,static fn(array $i): bool=>$i['slug']===$member));
                 if($matched)$create['institution_id']=(int)$matched[0]['id'];
+                $lookupLoaded=true;
                 $message='Alma details loaded. Review and complete the account fields below.';
             }
         }
     }elseif($action==='create_account'){
+        $screen=(string)($_POST['origin']??'manual');
         $create['institution_id']=(int)($_POST['institution_id']??0);$create['identifier']=trim((string)($_POST['identifier']??''));$create['display_name']=trim((string)($_POST['display_name']??''));$create['email']=strtolower(trim((string)($_POST['email']??'')));$create['role']=(string)($_POST['role']??'user');
+        $lookupLoaded=$screen==='alma';
         $password=(string)($_POST['new_password']??'');$confirmation=(string)($_POST['confirm_password']??'');
         $institutionQuery=db()->prepare('SELECT id FROM institutions WHERE id=? AND active=1');$institutionQuery->execute([$create['institution_id']]);
         if(!$institutionQuery->fetchColumn())$error='Choose an active institution.';
@@ -85,14 +87,32 @@ if($where)$sql.=' WHERE '.implode(' AND ',$where);
 $sql.=' ORDER BY i.name,u.display_name LIMIT 200';$q=db()->prepare($sql);$q->execute($params);$accounts=$q->fetchAll();
 
 render_start('Admin · User accounts');
-echo '<div class="page-title"><div><p class="eyebrow">Administration</p><h1>User accounts</h1><p class="muted">Create accounts, manage access, and reset passwords.</p></div></div>';
+echo '<div class="page-title"><div><p class="eyebrow">Administration</p><h1>User accounts</h1><p class="muted">Create accounts, manage access, and reset passwords.</p></div>';
+if(!$edit&&$screen==='')echo '<a class="button" href="admin.php?add=choose">Add account</a>';
+echo '</div>';
 if($error)echo '<div class="flash error">'.h($error).'</div>';if($message)echo '<div class="flash">'.h($message).'</div>';
+if($screen==='choose'&&!$edit){
+    echo '<section class="card"><h2>Add an account</h2><p>Choose how to enter the account details.</p><div class="actions"><a class="button" href="admin.php?add=manual">Create manually</a><a class="button secondary" href="admin.php?add=alma">Look up in Alma</a></div><p><a href="admin.php">Back to accounts</a></p></section>';
+}
+if($screen==='alma'&&!$edit&&!$lookupLoaded){
+    echo '<section class="card"><h2>Look up in Alma</h2><p class="muted">Search across the configured Alma member institutions by user ID.</p><form method="post" class="lookup-row"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="lookup"><label>Alma user ID<input name="identifier" value="'.h($create['identifier']).'" required autofocus></label><button>Search Alma</button></form><p><a href="admin.php?add=choose">Back to account options</a></p></section>';
+}
+if($screen==='manual'&&!$edit){
+    echo '<section class="card"><h2>Create account manually</h2><form method="post" class="form-grid"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="create_account"><input type="hidden" name="origin" value="manual"><div class="two"><label>Full name<input name="display_name" value="'.h($create['display_name']).'" required></label><label>Email<input type="email" name="email" value="'.h($create['email']).'" required></label></div><div class="two"><label>Institution<select name="institution_id" required>'.admin_institution_options($institutions,(int)$create['institution_id']).'</select></label><label>Access level<select name="role">';
+    foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.($create['role']===$value?'selected':'').'>'.h($label).'</option>';
+    echo '</select></label></div><div class="two"><label>Initial password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label></div><button>Create account</button></form><small>Passwords are stored as one-way hashes. Existing passwords are never shown; an admin can set a new one.</small><p><a href="admin.php?add=choose">Back to account options</a></p></section>';
+}
+if($screen==='alma'&&$lookupLoaded&&!$edit){
+    echo '<section class="card"><h2>Finish account details</h2><form method="post" class="form-grid"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="create_account"><input type="hidden" name="origin" value="alma"><input type="hidden" name="identifier" value="'.h($create['identifier']).'"><div class="two"><label>Full name<input name="display_name" value="'.h($create['display_name']).'" required></label><label>Email<input type="email" name="email" value="'.h($create['email']).'" required></label></div><div class="two"><label>Institution<select name="institution_id" required>'.admin_institution_options($institutions,(int)$create['institution_id']).'</select></label><label>Access level<select name="role">';
+    foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.($create['role']===$value?'selected':'').'>'.h($label).'</option>';
+    echo '</select></label></div><div class="two"><label>Initial password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label></div><button>Create account</button></form><small>Passwords are stored as one-way hashes. Alma does not provide an existing password.</small></section>';
+}
 if($edit){echo '<section class="card"><h2>Edit account</h2><form method="post" class="form-grid"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="update_account"><input type="hidden" name="user_id" value="'.(int)$edit['id'].'"><div class="two"><label>Full name<input name="display_name" value="'.h($_POST['display_name']??$edit['display_name']).'" required></label><label>Email<input type="email" name="email" value="'.h($_POST['email']??$edit['email']).'" required></label></div><div class="two"><label>Institution<select name="institution_id" required>'.admin_institution_options($institutions,(int)($_POST['institution_id']??$edit['institution_id'])).'</select></label><label>Access level<select name="role">';foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.((string)($_POST['role']??$edit['role'])===$value?'selected':'').'>'.h($label).'</option>';echo '</select></label></div><label><input type="checkbox" name="active" value="1" style="display:inline;width:auto" '.((int)($_POST['active']??$edit['active'])===1?'checked':'').'> Active account</label><p class="muted">Existing passwords cannot be viewed or recovered. Leave these fields blank to keep the current password.</p><div class="two"><label>New password<input type="password" name="new_password" autocomplete="new-password" minlength="12"></label><label>Confirm new password<input type="password" name="confirm_password" autocomplete="new-password" minlength="12"></label></div><button>Save account</button></form></section>';}
 
-echo '<section class="card"><h2>Create an account</h2><p class="muted">Look up a staff member in Alma to prefill their name and email, then review the fields and set an initial password.</p><form method="post" class="lookup-row"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="lookup"><label>Institution<select name="institution_id" required>'.admin_institution_options($institutions,(int)($create['institution_id']?:tenant_id())).'</select></label><label>Alma user ID<input name="identifier" value="'.h($create['identifier']).'" required></label><button class="secondary">Look up account</button></form><form method="post" class="form-grid"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="create_account"><input type="hidden" name="identifier" value="'.h($create['identifier']).'"><div class="two"><label>Full name<input name="display_name" value="'.h($create['display_name']).'" required></label><label>Email<input type="email" name="email" value="'.h($create['email']).'" required></label></div><div class="two"><label>Institution<select name="institution_id" required>'.admin_institution_options($institutions,(int)$create['institution_id']).'</select></label><label>Access level<select name="role">';foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.($create['role']===$value?'selected':'').'>'.h($label).'</option>';echo '</select></label></div><div class="two"><label>Initial password<input type="password" name="new_password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input type="password" name="confirm_password" autocomplete="new-password" minlength="12" required></label></div><button>Create account</button></form><small>Passwords are stored as one-way hashes. Existing passwords are never shown; an admin can set a new one.</small></section>';
-
+if($screen===''||$edit){
 echo '<section class="card"><h2>Find accounts</h2><form method="get" class="lookup-row"><label>Name, email, or institution<input name="q" value="'.h($search).'"></label><label>Institution<select name="institution_id"><option value="0">All institutions</option>'.admin_institution_options($institutions,$filterInstitution).'</select></label><label>Access level<select name="role"><option value="">All levels</option>';foreach($roles as $value=>$label)echo '<option value="'.h($value).'" '.($filterRole===$value?'selected':'').'>'.h($label).'</option>';echo '</select></label><button>Search</button></form><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Institution</th><th>Access</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>';
 foreach($accounts as $account)echo '<tr><td>'.h($account['display_name']).'</td><td>'.h($account['email']).'</td><td>'.h($account['institution_name']).'</td><td>'.h(admin_role_label($account['role'])).'</td><td>'.((int)$account['active']?'Active':'Disabled').'</td><td>'.h($account['last_login_at']?:'Never').'</td><td><a href="admin.php?edit='.(int)$account['id'].'">Edit</a></td></tr>';
 if(!$accounts)echo '<tr><td colspan="7" class="empty">No accounts found.</td></tr>';
 echo '</tbody></table></div><small>Showing up to 200 accounts.</small></section>';
+}
 render_end();
