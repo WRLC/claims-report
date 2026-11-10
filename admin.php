@@ -105,7 +105,7 @@ $sql.=' ORDER BY i.name,u.display_name LIMIT 200';$q=db()->prepare($sql);$q->exe
 
 render_start('Admin · User accounts');
 echo '<div class="page-title"><div><p class="eyebrow">Administration</p><h1>User accounts</h1><p class="muted">Create accounts, manage access, and reset passwords.</p></div>';
-if(!$edit&&$screen==='')echo '<a class="button" href="admin.php?add=choose">Add account</a>';
+if(!$edit&&$screen==='')echo '<a class="button" href="admin.php?add=choose" style="color:#fff !important">Add account</a>';
 echo '</div>';
 if($error)echo '<div class="flash error">'.h($error).'</div>';if($message)echo '<div class="flash">'.h($message).'</div>';
 if($screen==='choose'&&!$edit){
