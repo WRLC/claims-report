@@ -64,7 +64,7 @@ function populate_item(string $barcode,string $patronMember=''): array {
 function case_institution_field(int $selectedId): string {
     if(!can_manage_all_submissions())return '';
     $institutions=db()->query('SELECT id,name FROM institutions WHERE active=1 ORDER BY name')->fetchAll();$html='<label>Institution<select name="institution_id" required>';
-    foreach($institutions as $institution)$html.='<option value="'.(int)$institution['id'].'" '.($selectedId===(int)$institution['id']?'selected':'').'>'.h($institution['name']).'</option>';
+    foreach($institutions as $institution)$html.='<option value="'.(int)$institution['id'].'" '.($selectedId===(int)$institution['id']?'selected':'').'>'.h(institution_label((string)$institution['name'])).'</option>';
     return $html.'</select></label>';
 }
 
