@@ -113,7 +113,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         $q=db()->prepare('INSERT INTO claims_cases('.implode(',',$insertColumns).') VALUES('.implode(',',array_fill(0,count($insertValues),'?')).')');$q->execute($insertValues);$newId=(int)db()->lastInsertId();event($newId,'created','Claims Returned case opened',['public_id'=>$public,'loan_type'=>$loan]);$case=case_by_id($newId);
         if($assignedStaff){event($newId,'assigned','Case initially assigned to '.$assignedStaff['display_name']);notify_case_assignee($case,$assignedStaff);}
         $openingText='We have opened a Claims Returned search for this item. Staff will complete four searches over time and contact you with the final outcome.';$nr=alma_append_claim_note($case,patron_notice_text($case,$openingText));event($newId,'alma_note',$nr['ok']?'Added initial patron notification to Alma user notes':'Initial Alma note not updated',['ok'=>$nr['ok'],'skipped'=>$nr['skipped']??false,'error'=>$nr['error']??'']);notice_message($case,$openingText);
-        if($loan!=='local'&&$partnerNotify&&$partnerEmail){$link=envv('APP_URL').'/case.php?partner='.rawurlencode($ptoken);$body="A Claims Returned search is requested for {$title}.
+        if($loan!=='local'&&$partnerNotify&&$partnerEmail){$link=app_url().'/case.php?partner='.rawurlencode($ptoken);$body="A Claims Returned search is requested for {$title}.
 Barcode: ".($case['item_barcode']??'')."
 Please update progress using this secure link: {$link}
 
@@ -127,7 +127,7 @@ Case: {$public}";notify_case($case,'partner_request','Partner library search req
         $oldStatus=search_status($case,$n);$isFinal=$status==='complete'||($n===4&&$status==='not_found');$nextStage=$isFinal?'closed':($n<4?'search_'.($n+1):'closed');$resolution=$isFinal?($status==='complete'?'complete':'not_found'):'';$closed=$isFinal?gmdate('Y-m-d H:i:s'):null;$next=$isFinal?null:($case['search_'.($n+1).'_due_at']??gmdate('Y-m-d',strtotime('+'.($n+1).' weeks')));
         $q=db()->prepare("UPDATE claims_cases SET search_{$n}_at=COALESCE(search_{$n}_at,UTC_TIMESTAMP()),search_{$n}_by=?,search_{$n}_result=?,search_{$n}_status=?,stage=?,resolution=?,resolution_note=?,closed_at=?,next_action_at=? WHERE id=? AND institution_id=?");$q->execute([user()['id'],$note,$status,$nextStage,$resolution,$isFinal?$note:null,$closed,$next,$id,(int)$case['institution_id']]);$editedDue=trim((string)($_POST['search_due_date']??''));if($editedDue!==''&&preg_match('/^\d{4}-\d{2}-\d{2}$/',$editedDue)){$dueUpdate=db()->prepare("UPDATE claims_cases SET search_{$n}_due_at=? WHERE id=? AND institution_id=?");$dueUpdate->execute([$editedDue,$id,(int)$case['institution_id']]);}
         $case=case_by_id($id);event($id,'search_'.$n,($status==='complete'?'Search '.$n.' completed: item found':'Search '.$n.' completed: item not found'),['note'=>$note,'previous_status'=>$oldStatus]);
-        $caseUrl='https://wrshields.wrlc2k.wrlc.org/api/claims-report/case.php?id='.(int)$case['id'];$almaNote='WRLC Claims Returned Case - '.$case['public_id']."\nSearch Notes: ".($note!==''?$note:'(No search notes entered)')."\nSearch: ".$n."\nCase URL: ".$caseUrl;$nr=alma_append_claim_note($case,$almaNote);event($id,'alma_note',$nr['ok']?'Updated Alma user note':'Alma note update not completed',['ok'=>$nr['ok'],'skipped'=>$nr['skipped']??false,'error'=>$nr['error']??'']);
+        $caseUrl=app_url().'/case.php?id='.(int)$case['id'];$almaNote='WRLC Claims Returned Case - '.$case['public_id']."\nSearch Notes: ".($note!==''?$note:'(No search notes entered)')."\nSearch: ".$n."\nCase URL: ".$caseUrl;$nr=alma_append_claim_note($case,$almaNote);event($id,'alma_note',$nr['ok']?'Updated Alma user note':'Alma note update not completed',['ok'=>$nr['ok'],'skipped'=>$nr['skipped']??false,'error'=>$nr['error']??'']);
         if($status==='complete'){$closedText='The item was found during Search '.$n.'. Your account has been updated.';$closedNote=alma_append_claim_note($case,patron_notice_text($case,$closedText));event($id,'alma_note',$closedNote['ok']?'Added case closure note to Alma':'Case closure note not added to Alma',['ok'=>$closedNote['ok'],'already_present'=>$closedNote['already_present']??false,'skipped'=>$closedNote['skipped']??false,'error'=>$closedNote['error']??'']);notice_message($case,$closedText);}elseif($isFinal){$closedText='The item was not found after four searches. Any applicable Lost Item Replacement charges remain in effect.';$closedNote=alma_append_claim_note($case,patron_notice_text($case,$closedText));event($id,'alma_note',$closedNote['ok']?'Added case closure note to Alma':'Case closure note not added to Alma',['ok'=>$closedNote['ok'],'already_present'=>$closedNote['already_present']??false,'skipped'=>$closedNote['skipped']??false,'error'=>$closedNote['error']??'']);notice_message($case,$closedText);}
         flash($isFinal?'Case completed.':'Search '.$n.' saved.');
         redirect('case.php?id='.$id);
@@ -162,7 +162,7 @@ Case: {$public}";notify_case($case,'partner_request','Partner library search req
             $partnerToken=bin2hex(random_bytes(32));
             $tokenUpdate=db()->prepare('UPDATE claims_cases SET partner_token_hash=?,partner_token_expires_at=? WHERE id=?');
             $tokenUpdate->execute([hash('sha256',$partnerToken),gmdate('Y-m-d H:i:s',strtotime('+90 days')),$id]);
-            $link=envv('APP_URL').'/case.php?partner='.rawurlencode($partnerToken);
+            $link=app_url().'/case.php?partner='.rawurlencode($partnerToken);
             $body="A Claims Returned search is requested for {$updatedCase['item_title']}.\nBarcode: ".($updatedCase['item_barcode']??'')."\nPlease update progress using this secure link: {$link}\n\nCase: {$updatedCase['public_id']}";
             notify_case($updatedCase,'partner_request','Partner library search requested: '.$updatedCase['item_title'],$body,$partnerEmail);
         }
@@ -177,7 +177,7 @@ Case: {$public}";notify_case($case,'partner_request','Partner library search req
         if(!$case||!can_edit()){http_response_code(403);exit('Access denied.');}
         $customNote=trim((string)($_POST['custom_patron_note']??''));
         if($customNote===''){flash('Enter a note to add to Alma.','error');redirect('case.php?id='.$id);}
-        $caseUrl=rtrim(envv('APP_URL','https://wrshields.wrlc2k.wrlc.org/api/claims-report'),'/').'/case.php?id='.(int)$case['id'];
+        $caseUrl=app_url().'/case.php?id='.(int)$case['id'];
         $almaNote='WRLC Claims Returned Case - '.$case['public_id']."\nCustom Patron Note: {$customNote}\n\nItem details:\nTitle: {$case['item_title']}\nBarcode: ".($case['item_barcode']?:'Not available')."\nAuthor: ".($case['item_author']?:'Not available')."\nMMS ID: ".($case['item_mms_id']?:'Not available')."\nCase: {$case['public_id']}\nCase URL: {$caseUrl}";
         if(mb_strlen($almaNote)>2000){flash('The note is too long once case and item details are included. Shorten the note and try again.','error');redirect('case.php?id='.$id);}
         $result=alma_append_claim_note($case,$almaNote);
