@@ -17,6 +17,7 @@ session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>filter_var(getenv
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 date_default_timezone_set(envv('APP_TIMEZONE','America/New_York'));
 function envv(string $key,string $default=''): string { return trim((string)(getenv($key)!==false?getenv($key):$default)); }
+function app_url(): string { return 'https://wrshields.wrlc2k.wrlc.org/api/claims-report'; }
 function h(mixed $v): string { return htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 function institution_label(string $name): string { return strcasecmp(trim($name),'scf')===0?'WRLC':$name; }
 function db(): PDO { static $p; if(!$p){$dsn=envv('DB_DSN');if(!$dsn)throw new RuntimeException('DB_DSN is not configured.');$p=new PDO($dsn,envv('DB_USER'),envv('DB_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);}return $p; }
@@ -118,7 +119,7 @@ function notify_case(array $c,string $template,string $subject,string $body,?str
 function notify_case_assignee(array $case,array $assignee): array {
  $to=trim((string)($assignee['email']??''));
  if(!filter_var($to,FILTER_VALIDATE_EMAIL))return save_notification((int)$case['id'],'email',$to?:'(missing email)','staff_assignment',false,'Assigned staff account has no valid email address.');
- $url=rtrim(envv('APP_URL'),'/').'/case.php?id='.(int)$case['id'];
+ $url=app_url().'/case.php?id='.(int)$case['id'];
  $body="Hello {$assignee['display_name']},\n\nA Claims Returned case has been assigned to you.\n\nCase: {$case['public_id']}\nPatron: {$case['patron_name']} ({$case['patron_primary_id']})\nItem: {$case['item_title']}\nBarcode: ".($case['item_barcode']?:'Not available')."\nNext search date: ".($case['next_action_at']?:'Not set')."\n\nView the case: {$url}";
  $headers=['From: '.envv('MAIL_FROM_NAME','WRLC Claims Returned').' <'.envv('MAIL_FROM','claims@localhost').'>','Content-Type: text/plain; charset=UTF-8'];
  $ok=@mail($to,'Claims Returned case assigned: '.$case['item_title'],$body,implode("\r\n",$headers));
