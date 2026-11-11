@@ -118,7 +118,7 @@ Barcode: ".($case['item_barcode']??'')."
 Please update progress using this secure link: {$link}
 
 Case: {$public}";notify_case($case,'partner_request','Partner library search requested: '.$title,$body,$partnerEmail);}
-        flash('Case '.$public.' created.');redirect('case.php?id='.$newId);
+        flash('Case '.$public.' created.');redirect('case.php?id='.$newId.'&edit_search=1');
     }elseif($action==='save_search'){
         if(!$case||!can_edit()){http_response_code(403);exit('Access denied.');}
         $n=(int)($_POST['search_number']??0);$status=(string)($_POST['search_status']??'');$note=trim((string)($_POST['search_note']??''));
