@@ -34,7 +34,7 @@ For the first test-server deployment, keep `ALMA_ENABLE_NOTE_UPDATES=false`; val
 
 ## Workflow
 
-Opening a case creates Search 1 and schedules the first due date (default seven days). The member's `search_interval_days` controls the default spacing; staff may adjust a case's due date. Completing a search writes its timestamp and staff member, advances the stage, and records the search notes in Alma without emailing the patron. Patron email is sent when a case opens, closes, or reopens. Search 4 advances to final resolution. “Found” and “Not found” close the case and send the final outcome. CLS/P2P/ILL cases can store a partner library and email address; when partner email notifications are enabled, the partner receives the search request and a scoped case link.
+Opening a case creates Search 1 and schedules the first due date (default seven days). The member's `search_interval_days` controls the default spacing; staff may adjust a case's due date. Completing a search writes its timestamp and staff member, advances the stage, and records the search notes in Alma without emailing the patron. Patron email is sent when a case opens, closes, or reopens. Search 4 advances to final resolution. “Found” and “Not found” close the case and send the final outcome. CLS/P2P/ILL cases can store a partner library and email address; when partner email notifications are enabled, the partner receives the search request, assigned staff contact details, and a scoped case link. Partners are notified when the assigned staff contact changes. Partner library choices include consortium institutions, CLS, P2P, and ILL.
 
 ## User accounts
 
