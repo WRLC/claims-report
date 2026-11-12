@@ -132,6 +132,17 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember): arr
  return $out;
 }
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
+function alma_case_item_field(array $record,array $names): mixed { foreach($record as $key=>$value)if(is_string($key)&&in_array(strtolower($key),$names,true))return $value;return null; }
+function alma_case_field_text(mixed $value): string { if(is_array($value)){ $parts=[];foreach($value as $entry)$parts[]=alma_case_field_text($entry);return implode(' ',$parts); }return trim((string)$value); }
+function alma_item_case_type(array $item,array $loan=[]): ?string {
+ $itemData=$item['item_data']??$item;$loanData=$loan['item_data']??$loan;
+ $policy=alma_case_item_field(is_array($itemData)?$itemData:[],['policy','item_policy','policy_code']);if($policy===null)$policy=alma_case_item_field(is_array($loanData)?$loanData:[],['policy','item_policy','policy_code']);
+ $location=alma_case_item_field(is_array($itemData)?$itemData:[],['location','location_code','item_location']);if($location===null)$location=alma_case_item_field(is_array($loanData)?$loanData:[],['location','location_code','item_location']);
+ $text=strtolower(alma_case_field_text($policy).' '.alma_case_field_text($location));
+ if(preg_match('/illiad|(?:^|[^a-z0-9])ill(?:$|[^a-z0-9])/i',$text))return 'ILL';
+ if(preg_match('/suny|(?:^|[^a-z0-9])p2p(?:$|[^a-z0-9])/i',$text))return 'P2P';
+ return null;
+}
 function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool $requestIdPresent,bool $requestLookupOk,bool $hasResourceSharing,string $profileType): array {
  $profile=strtoupper(trim($profileType));$category=null;$reason='Alma did not provide enough information to confirm the loan category.';
  if($requestIdPresent&&!$requestLookupOk){if($homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0)return ['category'=>'CLS','status'=>'confirmed','reason'=>'The loan is attached to a patron account at another configured WRLC institution.','is_resource_sharing'=>null];return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];}
@@ -171,6 +182,7 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  $itemMember=(string)($item['_alma_member']??$item['item_data']['_alma_member']??'');
  $classification=alma_classify_loan_evidence($homeMember,$itemMember,$requestIdPresent,$requestOk,$hasResourceSharing,$profile);
  $configured=json_decode(envv('ALMA_PARTNER_CASE_TYPES','{}'),true);if(is_array($configured)&&$partnerCode!==''&&isset($configured[$partnerCode])){$mapped=strtoupper(trim((string)$configured[$partnerCode]));if(in_array($mapped,['LOCAL','CLS','P2P','ILL'],true)){$classification['category']=$mapped==='LOCAL'?'local':$mapped;$classification['status']='confirmed';$classification['reason']='The Alma partner has an explicit ALMA_PARTNER_CASE_TYPES configuration.';}}
+ $itemType=alma_item_case_type($item,$loan);if($itemType!==null){$classification['category']=$itemType;$classification['status']='confirmed';$classification['reason']='The Alma item Policy or Location identifies this as '.$itemType.'.';}
  $institutions=db()->query('SELECT id,slug,name,alma_code,partner_email FROM institutions WHERE active=1')->fetchAll();$details=$partner['partner_details']??[];$partnerMatchDetails=$details;
  $matched=null;
  if($classification['category']!=='local'){
@@ -191,7 +203,9 @@ function alma_classify_patron_loans(array $patron,string $homeMember,array $loan
  foreach($loans as $index=>$loan){
   if(!is_array($loan))continue;
   $loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);
-  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,['_alma_member'=>$loanMember],$loanMember,$loanId);
+  $item=['_alma_member'=>$loanMember];
+  if(alma_item_case_type($loan,$loan)===null&&trim((string)($loan['item_barcode']??''))!==''){$lookup=alma_lookup_item($loanMember?:$homeMember,(string)$loan['item_barcode']);if($lookup['ok']&&is_array($lookup['data'])){$item=$lookup['data']['item']??$lookup['data'];if(!is_array($item))$item=[];$item['_alma_member']=$lookup['data']['_alma_member']??$loanMember;}}
+  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId);
   $category=$classification['category'];
   if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
   $loans[$index]['_claims_case_type']=$category??'unconfirmed';
