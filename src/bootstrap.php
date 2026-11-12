@@ -131,7 +131,7 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember): arr
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
 function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool $requestIdPresent,bool $requestLookupOk,bool $hasResourceSharing,string $profileType): array {
  $profile=strtoupper(trim($profileType));$category=null;$reason='Alma did not provide enough information to confirm the loan category.';
- if($requestIdPresent&&!$requestLookupOk)return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];
+ if($requestIdPresent&&!$requestLookupOk){if($homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0)return ['category'=>'CLS','status'=>'confirmed','reason'=>'The loan is attached to a patron account at another configured WRLC institution.','is_resource_sharing'=>null];return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];}
  if($hasResourceSharing){
   if($profile==='NCIP_P2P'){$category='P2P';$reason='The linked Alma Resource Sharing partner uses the NCIP P2P profile.';}
   elseif($profile==='FULFILLMENT_NETWORK'&&$homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0){$category='CLS';$reason='The linked Alma request uses the Fulfillment Network profile and the item record belongs to another configured Alma institution.';}
@@ -139,8 +139,7 @@ function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool 
   else $reason='The linked Alma Resource Sharing workflow does not identify P2P, ILL, or CLS unambiguously.';
  }elseif($homeMember!==''&&$itemMember!==''){
   if(strcasecmp($homeMember,$itemMember)===0){$category='local';$reason='The loaned item is owned by the patron’s home Alma institution and no Resource Sharing request is linked.';}
-  elseif($requestIdPresent&&$requestLookupOk){$category='CLS';$reason='The item is owned by another configured WRLC Alma institution, and the linked Alma request is not a Resource Sharing request.';}
-  else $reason='The item belongs to another Alma institution, but the circulation workflow could not be verified as CLS.';
+  else{$category='CLS';$reason='The loan is attached to a patron account at another configured WRLC institution.';}
  }
  return ['category'=>$category,'status'=>$category===null?'unresolved':'confirmed','reason'=>$reason,'is_resource_sharing'=>$hasResourceSharing];
 }
@@ -183,6 +182,18 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  $lendingIdentifier=$itemMember!==''?$itemMember:$partnerCode;
  if($classification['category']!==null&&$classification['category']!=='local'&&!$matched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
  return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched];
+}
+function alma_classify_patron_loans(array $patron,string $homeMember,array $loans): array {
+ $homeId=trim((string)($patron['primary_id']??''));
+ foreach($loans as $index=>$loan){
+  if(!is_array($loan))continue;
+  $loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);
+  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,['_alma_member'=>$loanMember],$loanMember,$loanId);
+  $category=$classification['category'];
+  if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
+  $loans[$index]['_claims_case_type']=$category??'unconfirmed';
+ }
+ return $loans;
 }
 function alma_lookup_loan(string $patronId,string $barcode,string $preferredMember='',string $loanMember='',string $loanPrimaryId=''): ?array {
  $loans=$loanMember!==''&&$loanPrimaryId!==''?alma_lookup_account_loans($loanPrimaryId,$loanMember):alma_lookup_loans($patronId,$preferredMember);
