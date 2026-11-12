@@ -70,7 +70,7 @@ foreach($loans as $loan){
         'title'=>(string)($loan['title']??'Untitled item'),
         'barcode'=>$barcode,
         'institution'=>institution_label($institutionNames[$loanMember]??$loanMember),
-        'case_type'=>match((string)($loan['_claims_case_type']??'')){'CLS'=>'CLS','P2P'=>'P2P','ILL'=>'ILL','local'=>'Local',default=>'Unconfirmed'},
+        'case_type'=>case_type_label((string)($loan['_claims_case_type']??'')),
         'call_number'=>(string)($loan['call_number']??''),
         'due_date'=>(string)($loan['due_date']??''),
         'library'=>(string)$library,
