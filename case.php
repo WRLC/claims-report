@@ -83,7 +83,7 @@ function case_institution_field(int $selectedId): string {
 function partner_institution_field(string $selected='',bool $disabled=false,bool $required=false): string {
     $institutions=db()->query('SELECT name,partner_email FROM institutions WHERE active=1 ORDER BY name')->fetchAll();
     $html='<label>Partner library<select name="partner_name"'.($disabled?' disabled':'').($required?' required':'').'><option value="">Select an institution or service</option>';$matched=false;
-    foreach(['P2P','ILL'] as $service){$isSelected=$selected!==''&&strcasecmp(trim($selected),$service)===0;$matched=$matched||$isSelected;$html.='<option value="'.h($service).'"'.($isSelected?' selected':'').'>'.h($service).'</option>';}
+    foreach(['SUNY','P2P','ILL'] as $service){$isSelected=$selected!==''&&strcasecmp(trim($selected),$service)===0;$matched=$matched||$isSelected;$html.='<option value="'.h($service).'"'.($isSelected?' selected':'').'>'.h($service).'</option>';}
     foreach($institutions as $institution){$name=(string)$institution['name'];$email=trim((string)($institution['partner_email']??''));if(!filter_var($email,FILTER_VALIDATE_EMAIL))$email='';$isSelected=$selected!==''&&strcasecmp(trim($selected),trim($name))===0;$matched=$matched||$isSelected;$html.='<option value="'.h($name).'" data-partner-email="'.h($email).'"'.($isSelected?' selected':'').'>'.h(institution_label($name)).'</option>';}
     if($selected!==''&&!$matched&&strcasecmp(trim($selected),'CLS')!==0)$html.='<option value="'.h($selected).'" selected>'.h($selected).' (existing value)</option>';
     return $html.'</select></label>';
