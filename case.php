@@ -37,7 +37,7 @@ $id=(int)($_GET['id']??0);$case=$id?case_by_id($id):null;
 if($id&&!$case){http_response_code(404);exit('Case not found.');}
 if($case&&!can_edit()){http_response_code(403);exit('Access denied.');}
 
-$message='';$patronFound=false;$patronNotes=[];$patronMember='';$loans=[];$openCaseByBarcode=[];$selectedItem=false;$editSearch=(int)($_GET['edit_search']??0);$selectedInstitutionId=can_manage_all_submissions()?(int)($_POST['institution_id']??tenant_id()):tenant_id();
+$message='';$patronFound=false;$patronNotes=[];$patronMember='';$patronInstitutionName='';$loans=[];$openCaseByBarcode=[];$selectedItem=false;$editSearch=(int)($_GET['edit_search']??0);$selectedInstitutionId=can_manage_all_submissions()?(int)($_POST['institution_id']??tenant_id()):tenant_id();
 
 function populate_patron(string $patronId): array {
     $r=alma_lookup_user(user()['institution_slug'],$patronId);
@@ -92,6 +92,11 @@ function partner_staff_contact(?array $staff): string {
     if(trim((string)($staff['institution_name']??''))!=='')$lines[]='Institution: '.institution_label((string)$staff['institution_name']);
     return implode("\n",$lines);
 }
+function alma_institution_name(string $member): string {
+    if($member==='')return '';
+    $q=db()->prepare('SELECT name FROM institutions WHERE slug=? AND active=1 LIMIT 1');$q->execute([$member]);
+    return (string)($q->fetchColumn()?:'');
+}
 function alma_institution_id(string $member,int $fallback): int {
     if(!can_manage_all_submissions()||$member==='')return $fallback;
     $q=db()->prepare('SELECT id FROM institutions WHERE slug=? AND active=1 LIMIT 1');$q->execute([$member]);
@@ -103,11 +108,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     if($action==='lookup'){
         if(!can_edit()){http_response_code(403);exit('Access denied.');}
         [$p,$message]=populate_patron(trim((string)($_POST['patron_primary_id']??'')));
-        if($p){$patronFound=true;$patronMember=(string)($p['_alma_member']??'');$patronNotes=alma_user_notes($p,(string)($_POST['patron_primary_id']??''));$selectedInstitutionId=alma_institution_id($patronMember,$selectedInstitutionId);$loans=alma_lookup_loans((string)$_POST['patron_primary_id'],$patronMember);if($loans){$barcodes=array_values(array_filter(array_column($loans,'item_barcode')));$marks=implode(',',array_fill(0,count($barcodes),'?'));$targetInstitution=can_manage_all_submissions()?$selectedInstitutionId:tenant_id();$q=db()->prepare("SELECT id,public_id,item_barcode FROM claims_cases WHERE institution_id=? AND stage<>'closed' AND item_barcode IN ($marks)");$q->execute(array_merge([$targetInstitution],$barcodes));foreach($q->fetchAll() as $open)$openCaseByBarcode[(string)$open['item_barcode']]=$open;}}
+        if($p){$patronFound=true;$patronMember=(string)($p['_alma_member']??'');$patronInstitutionName=alma_institution_name($patronMember);$patronNotes=alma_user_notes($p,(string)($_POST['patron_primary_id']??''));$selectedInstitutionId=alma_institution_id($patronMember,$selectedInstitutionId);$loans=alma_lookup_loans((string)$_POST['patron_primary_id'],$patronMember);if($loans){$barcodes=array_values(array_filter(array_column($loans,'item_barcode')));$marks=implode(',',array_fill(0,count($barcodes),'?'));$targetInstitution=can_manage_all_submissions()?$selectedInstitutionId:tenant_id();$q=db()->prepare("SELECT id,public_id,item_barcode FROM claims_cases WHERE institution_id=? AND stage<>'closed' AND item_barcode IN ($marks)");$q->execute(array_merge([$targetInstitution],$barcodes));foreach($q->fetchAll() as $open)$openCaseByBarcode[(string)$open['item_barcode']]=$open;}}
     }elseif($action==='select_item'){
         if(!can_edit()){http_response_code(403);exit('Access denied.');}
         [$p,$message]=populate_patron(trim((string)($_POST['patron_primary_id']??'')));
-        if($p){$patronMember=(string)($p['_alma_member']??'');$patronNotes=alma_user_notes($p,(string)($_POST['patron_primary_id']??''));$selectedInstitutionId=alma_institution_id($patronMember,$selectedInstitutionId);[$item,$message]=populate_item(trim((string)($_POST['item_barcode']??'')),$patronMember);$selectedItem=(bool)$item;}
+        if($p){$patronMember=(string)($p['_alma_member']??'');$patronInstitutionName=alma_institution_name($patronMember);$patronNotes=alma_user_notes($p,(string)($_POST['patron_primary_id']??''));$selectedInstitutionId=alma_institution_id($patronMember,$selectedInstitutionId);[$item,$message]=populate_item(trim((string)($_POST['item_barcode']??'')),$patronMember);$selectedItem=(bool)$item;}
     }elseif($action==='create'){
         if(!can_edit()){http_response_code(403);exit('Access denied.');}
         $institutionId=can_manage_all_submissions()?(int)($_POST['institution_id']??0):tenant_id();$validInstitution=db()->prepare('SELECT id FROM institutions WHERE id=? AND active=1');$validInstitution->execute([$institutionId]);if(!$validInstitution->fetchColumn()){flash('Choose an active institution for this submission.','error');redirect('case.php');}
@@ -242,9 +247,9 @@ ob_start(static function(string $output) use ($case,$caseTypeOptions,$createStaf
 render_start($case?'Case '.$case['public_id']:'New case');
 if(!$case){
     if(!$selectedItem){
-        echo '<section class="card"><h2>Find patron</h2><p class="muted">Enter the patron identifier first, then choose the checked-out item to report missing.</p><form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="lookup"><label>Patron primary ID<input name="patron_primary_id" value="'.h($_POST['patron_primary_id']??'').'" required autofocus></label><button>Look up patron</button></form></section>';
+        echo '<section class="card"><h2>Find patron</h2><p class="muted">Enter the patron identifier first, then choose the checked-out item to report missing.</p><form method="post" onsubmit="this.querySelector('button[type=submit]').disabled=true;document.getElementById('patron-lookup-progress').hidden=false"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="lookup"><label>Patron primary ID<input name="patron_primary_id" value="'.h($_POST['patron_primary_id']??'').'" required autofocus></label><button type="submit">Look up patron</button><p id="patron-lookup-progress" class="lookup-progress" role="status" aria-live="polite" hidden><progress aria-label="Searching configured Alma accounts"></progress> Searching all configured Alma accounts…</p></form></section>';
         if($patronFound){
-            echo '<section class="card"><h2>Checked-out items for '.h($_POST['patron_name']??$_POST['patron_primary_id']??'').'</h2>';
+            echo '<section class="card"><h2>Checked-out items for '.h($_POST['patron_name']??$_POST['patron_primary_id']??'').($patronInstitutionName!==''?' · '.h(institution_label($patronInstitutionName)):'').'</h2>';
             if($loans){echo '<div class="table-wrap"><table><thead><tr><th>Open case</th><th>Title</th><th>Barcode</th><th>Call number</th><th>Due date</th><th>Library</th></tr></thead><tbody>';foreach($loans as $loan){$open=$openCaseByBarcode[(string)($loan['item_barcode']??'')]??null;$due=$loan['due_date']??'';$dueTs=$due?strtotime($due):false;$library=is_array($loan['library']??null)?($loan['library']['desc']??$loan['library']['value']??''):(string)($loan['library']??'');echo '<tr><td>'.($open?'<a href="case.php?id='.(int)$open['id'].'">View '.$open['public_id'].'</a>':'—').'</td><td><form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="select_item"><input type="hidden" name="patron_primary_id" value="'.h($_POST['patron_primary_id']??'').'"><input type="hidden" name="institution_id" value="'.$selectedInstitutionId.'"><button class="secondary" name="item_barcode" value="'.h($loan['item_barcode']??'').'">'.h($loan['title']??'Untitled item').'</button></form></td><td>'.h($loan['item_barcode']??'').'</td><td>'.h($loan['call_number']??'').'</td><td>'.h($dueTs?date('M j, Y g:i a',$dueTs):$due).'</td><td>'.h($library).'</td></tr>';}echo '</tbody></table></div>';}else echo '<p class="empty">No active checked-out items were found for this patron.</p>';
             echo '</section>';
             if($patronNotes){
