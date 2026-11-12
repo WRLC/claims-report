@@ -45,7 +45,7 @@ $emailStatuses=alma_note_email_statuses($patronNotes,(string)($patron['primary_i
 foreach($patronNotes as $index=>&$note)$note['email_status']=$emailStatuses[$index]??['Internal update — no emails sent'];
 unset($note);
 
-$loans=alma_lookup_patron_network_loans($patron,$member);
+$loans=alma_classify_patron_loans($patron,$member,alma_lookup_patron_network_loans($patron,$member));
 $barcodes=array_values(array_unique(array_filter(array_map(static fn($loan)=>trim((string)($loan['item_barcode']??'')),$loans))));
 $openCasesByBarcode=[];
 if($barcodes){
@@ -70,6 +70,7 @@ foreach($loans as $loan){
         'title'=>(string)($loan['title']??'Untitled item'),
         'barcode'=>$barcode,
         'institution'=>institution_label($institutionNames[$loanMember]??$loanMember),
+        'case_type'=>match((string)($loan['_claims_case_type']??'')){'CLS'=>'CLS','P2P'=>'P2P','ILL'=>'ILL','local'=>'Local',default=>'Unconfirmed'},
         'call_number'=>(string)($loan['call_number']??''),
         'due_date'=>(string)($loan['due_date']??''),
         'library'=>(string)$library,
