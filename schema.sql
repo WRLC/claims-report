@@ -30,7 +30,7 @@ CREATE TABLE claims_cases (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   public_id CHAR(12) NOT NULL UNIQUE,
   institution_id BIGINT UNSIGNED NOT NULL,
-  created_by BIGINT UNSIGNED NOT NULL,
+  created_by BIGINT UNSIGNED NULL,
   assigned_to BIGINT UNSIGNED NULL,
   patron_primary_id VARCHAR(255) NOT NULL,
   patron_name VARCHAR(255) NOT NULL,
@@ -64,8 +64,8 @@ CREATE TABLE claims_cases (
   INDEX ix_queue (institution_id, stage, next_action_at),
   INDEX ix_patron (institution_id, patron_primary_id),
   CONSTRAINT fk_case_institution FOREIGN KEY (institution_id) REFERENCES institutions(id),
-  CONSTRAINT fk_case_creator FOREIGN KEY (created_by) REFERENCES users(id),
-  CONSTRAINT fk_case_assignee FOREIGN KEY (assigned_to) REFERENCES users(id)
+  CONSTRAINT fk_case_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_case_assignee FOREIGN KEY (assigned_to) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE case_events (
@@ -78,7 +78,7 @@ CREATE TABLE case_events (
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX ix_case_events (case_id, created_at),
   CONSTRAINT fk_event_case FOREIGN KEY (case_id) REFERENCES claims_cases(id) ON DELETE CASCADE,
-  CONSTRAINT fk_event_actor FOREIGN KEY (actor_user_id) REFERENCES users(id)
+  CONSTRAINT fk_event_actor FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE notification_log (

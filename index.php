@@ -26,4 +26,5 @@ echo '<section class="card table-wrap"><table class="claims-queue"><thead><tr><t
 foreach($cases as $c){$status=$c['stage']==='closed'?($c['resolution']==='complete'?'Complete':'Not found'):str_replace('_',' ',$c['stage']);$isPartner=$c['loan_type']!=='local';echo '<tr><td><a href="case.php?id='.(int)$c['id'].'"><strong>'.h($c['public_id']).'</strong></a><br>'.h($c['patron_name']).'<small>'.h($c['patron_primary_id']).'</small></td><td>'.h(institution_label((string)$c['institution_name'])).'</td><td>'.h($c['item_title']).'<small>'.h($c['item_barcode']??'').'</small></td><td>'.h($c['loan_type']).'</td><td>'.h($isPartner?($c['partner_name']?:'Not specified'):'—').'</td><td><span class="badge">'.h($status).'</span></td><td>'.h($c['next_action_at']?date('M j, Y',strtotime($c['next_action_at'])):'—').'</td><td>'.h($c['assignee_name']??'Unassigned').'</td></tr>';}
 if(!$cases)echo '<tr><td colspan="8" class="empty">'.($showClosed?'No closed cases.':'No active cases. Create one when a claim is received.').'</td></tr>';
 echo '</tbody></table></section>';
+echo '<script src="assets/claims-queue-sort.js?v=claims-queue-sort-20261111" defer></script>';
 render_end();

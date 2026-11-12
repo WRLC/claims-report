@@ -19,3 +19,5 @@ main:has(.persistent-sections)>.patron-account{order:4}
 
 .claims-queue th:nth-child(7),.claims-queue td:nth-child(7),.claims-queue th:nth-child(8),.claims-queue td:nth-child(8){white-space:nowrap}
 .claims-queue th:nth-child(6),.claims-queue td:nth-child(6){white-space:nowrap}
+.claims-queue th[role=button]{cursor:pointer;user-select:none}.claims-queue th[role=button]:focus-visible{outline:2px solid #176d88;outline-offset:-3px}.claims-queue th[aria-sort=ascending]::after{content:" ▲"}.claims-queue th[aria-sort=descending]::after{content:" ▼"}
+.claims-queue th[role=button]:hover{color:#155f7d;background:#eaf2f5;text-decoration:underline;text-underline-offset:3px}
