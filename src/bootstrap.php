@@ -197,7 +197,8 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  if($matched&&strcasecmp((string)$matched['slug'],$homeMember)===0)$matched=null;
  $partnerEmail=$matched?trim((string)($matched['partner_email']??'')):'';if(!filter_var($partnerEmail,FILTER_VALIDATE_EMAIL))$partnerEmail=$matched?alma_partner_contact_email($partner):'';
  $partnerName=$matched?(string)$matched['name']:'';
- if($classification['category']==='P2P'&&str_contains(alma_item_policy_location_text($item,$loan),'suny'))$partnerName='SUNY';
+ if($classification['category']==='ILL')$partnerName='ILL';
+ elseif($classification['category']==='P2P')$partnerName=str_contains(alma_item_policy_location_text($item,$loan),'suny')?'SUNY':'P2P';
  $lendingIdentifier=$itemMember!==''?$itemMember:$partnerCode;
  if($classification['category']!==null&&$classification['category']!=='local'&&!$matched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
  return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched];
