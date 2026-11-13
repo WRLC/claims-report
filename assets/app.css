@@ -63,9 +63,7 @@ h1.has-ui-icon .heading-icon,h2.has-ui-icon .heading-icon,h3.has-ui-icon .headin
  .resource-sharing-table td.empty::before{content:none}
 }
 
-.patron-item-status{margin:0 0 18px;padding:14px 16px;border:1px solid #e5ebee;border-radius:9px;background:#fbfcfd}
-.patron-item-status h3{margin:0 0 10px;font-size:14px}
-.patron-item-status-row{display:flex;align-items:center;gap:9px;margin:0;font-size:14px}
+.patron-item-status-row{display:flex;align-items:center;gap:9px;margin:-10px 0 24px;font-size:14px}
 .patron-item-status-icon{display:inline-flex;width:22px;height:22px;flex:0 0 22px;align-items:center;justify-content:center;border-radius:50%;font-size:15px;font-weight:800;line-height:1}
 .patron-item-status-icon.checked-in{background:#dff3e6;color:#16734c}
 .patron-item-status-icon.checked-out{background:#fde5e2;color:#b42318}
