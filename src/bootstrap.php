@@ -147,6 +147,17 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember,strin
  foreach(alma_lookup_linked_accounts($patron,$homeMember) as $account)$out=array_merge($out,alma_lookup_account_loans((string)$account['primary_id'],(string)$account['institution'],$loanStatus,$maxRows));
  return $out;
 }
+function alma_case_patron_item_status(array $case,array $patron,string $member): array {
+ $status=alma_item_checkin_status($case);$barcode=strtolower(trim((string)($case['item_barcode']??'')));
+ if(($status['state']??'')==='checked_in'){
+  $checkinDate=(string)($status['checkin_date']??'');
+  if($checkinDate===''&&$barcode!=='')foreach(alma_lookup_patron_network_loans($patron,$member,'Complete',100) as $loan){$loanBarcode=strtolower(trim((string)($loan['item_barcode']??$loan['barcode']??'')));if($loanBarcode!==''&&$loanBarcode===$barcode){$checkinDate=(string)($loan['return_date']??'');break;}}
+  return ['state'=>'checked_in','checkin_date'=>$checkinDate,'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
+ }
+ if(($status['state']??'')==='checked_out'&&$barcode!=='')foreach(alma_lookup_patron_network_loans($patron,$member) as $loan){$loanBarcode=strtolower(trim((string)($loan['item_barcode']??$loan['barcode']??'')));if($loanBarcode!==''&&$loanBarcode===$barcode)return ['state'=>'checked_out','checkin_date'=>'','due_date'=>(string)($loan['due_date']??''),'message'=>'Alma shows this item on the patron’s active account.'];}
+ if(($status['state']??'')==='checked_out')return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma reports that the item is on loan but does not show it on this patron’s active account.'];
+ return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>$status['message']??'Alma could not confirm the item status.'];
+}
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
 function alma_case_item_field(array $record,array $names): mixed { foreach($record as $key=>$value)if(is_string($key)&&in_array(strtolower($key),$names,true))return $value;return null; }
 function alma_case_field_text(mixed $value): string { if(is_array($value)){ $parts=[];foreach($value as $entry)$parts[]=alma_case_field_text($entry);return implode(' ',$parts); }return trim((string)$value); }
