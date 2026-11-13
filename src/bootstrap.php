@@ -23,11 +23,19 @@ function institution_label(string $name): string { return strcasecmp(trim($name)
 function case_type_key(string $type): string { return match(strtolower(trim($type))){'local'=>'local','cls'=>'cls','p2p'=>'p2p','ill'=>'ill',default=>'unconfirmed'}; }
 function case_type_label(string $type): string { return match(case_type_key($type)){'local'=>'Local','cls'=>'CLS','p2p'=>'P2P','ill'=>'ILL',default=>'Unconfirmed'}; }
 function case_type_badge(string $type): string { $key=case_type_key($type);return '<span class="case-type-pill case-type-'.$key.'">'.h(case_type_label($type)).'</span>'; }
+function email_addresses(string $value): array { $emails=array_map('trim',explode(',',$value));return array_values(array_unique(array_filter($emails,static fn(string $email): bool=>$email!==''))); }
+function valid_email_list(string $value,bool $allowEmpty=true): bool {
+ $value=trim($value);if($value==='')return $allowEmpty;
+ $parts=array_map('trim',explode(',',$value));if(in_array('',$parts,true))return false;
+ foreach($parts as $email)if(!filter_var($email,FILTER_VALIDATE_EMAIL))return false;
+ return true;
+}
 function resource_sharing_contact_email(string $partnerLibrary,string $caseType): string {
  $column=match(strtoupper(trim($caseType))){'CLS'=>'cls_email','P2P'=>'p2p_email','ILL'=>'ill_email',default=>''};
  if($column===''||trim($partnerLibrary)==='')return '';
- $q=db()->prepare('SELECT '.$column.' FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) AND '.$column.' IS NOT NULL AND TRIM('.$column.')<>\'\' ORDER BY id LIMIT 1');$q->execute([$partnerLibrary]);
- $email=trim((string)($q->fetchColumn()?:''));return filter_var($email,FILTER_VALIDATE_EMAIL)?$email:'';
+ $q=db()->prepare('SELECT '.$column.' FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) AND '.$column.' IS NOT NULL AND TRIM('.$column.')<>\'\' ORDER BY id');$q->execute([$partnerLibrary]);
+ $emails=[];foreach($q->fetchAll(PDO::FETCH_COLUMN) as $value)foreach(email_addresses((string)$value) as $email)if(filter_var($email,FILTER_VALIDATE_EMAIL))$emails[strtolower($email)]=$email;
+ return implode(', ',array_values($emails));
 }
 function db(): PDO { static $p; if(!$p){$dsn=envv('DB_DSN');if(!$dsn)throw new RuntimeException('DB_DSN is not configured.');$p=new PDO($dsn,envv('DB_USER'),envv('DB_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);}return $p; }
 function csrf_token(): string { return $_SESSION['csrf']??=bin2hex(random_bytes(32)); }
@@ -292,7 +300,9 @@ function notify_case(array $c,string $template,string $subject,string $body,?str
  $channel=str_starts_with($template,'partner_')?'partner':email_only_preference($c);if($channel==='none')return [];
  $to=$channel==='partner'?$c['partner_email']:($email?:$c['patron_email']);if(!$to)return [];
  $headers=['From: '.envv('MAIL_FROM_NAME','WRLC Claims Returned').' <'.envv('MAIL_FROM','claims@localhost').'>','Content-Type: text/plain; charset=UTF-8'];
- $ok=@mail($to,$subject,$body,implode("\r\n",$headers));return [save_notification((int)$c['id'],'email',$to,$template,$ok,$ok?'':'mail() rejected the message.')];
+ $recipients=$channel==='partner'?email_addresses((string)$to):[(string)$to];$results=[];
+ foreach($recipients as $recipient){$ok=filter_var($recipient,FILTER_VALIDATE_EMAIL)&&@mail($recipient,$subject,$body,implode("\r\n",$headers));$results[]=save_notification((int)$c['id'],'email',$recipient,$template,$ok,$ok?'':'mail() rejected the message or the address is invalid.');}
+ return $results;
 }
 function notify_case_assignee(array $case,array $assignee): array {
  $to=trim((string)($assignee['email']??''));
