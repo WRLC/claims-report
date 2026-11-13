@@ -20,6 +20,23 @@ function envv(string $key,string $default=''): string { return trim((string)(get
 function app_url(): string { return 'https://wrshields.wrlc2k.wrlc.org/api/claims-report'; }
 function h(mixed $v): string { return htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 function institution_label(string $name): string { return strcasecmp(trim($name),'scf')===0?'WRLC':$name; }
+function case_type_key(string $type): string { return match(strtolower(trim($type))){'local'=>'local','cls'=>'cls','p2p'=>'p2p','ill'=>'ill',default=>'unconfirmed'}; }
+function case_type_label(string $type): string { return match(case_type_key($type)){'local'=>'Local','cls'=>'CLS','p2p'=>'P2P','ill'=>'ILL',default=>'Unconfirmed'}; }
+function case_type_badge(string $type): string { $key=case_type_key($type);return '<span class="case-type-pill case-type-'.$key.'">'.h(case_type_label($type)).'</span>'; }
+function email_addresses(string $value): array { $emails=array_map('trim',explode(',',$value));return array_values(array_unique(array_filter($emails,static fn(string $email): bool=>$email!==''))); }
+function valid_email_list(string $value,bool $allowEmpty=true): bool {
+ $value=trim($value);if($value==='')return $allowEmpty;
+ $parts=array_map('trim',explode(',',$value));if(in_array('',$parts,true))return false;
+ foreach($parts as $email)if(!filter_var($email,FILTER_VALIDATE_EMAIL))return false;
+ return true;
+}
+function resource_sharing_contact_email(string $partnerLibrary,string $caseType): string {
+ $column=match(strtoupper(trim($caseType))){'CLS'=>'cls_email','P2P'=>'p2p_email','ILL'=>'ill_email',default=>''};
+ if($column===''||trim($partnerLibrary)==='')return '';
+ $q=db()->prepare('SELECT '.$column.' FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) AND '.$column.' IS NOT NULL AND TRIM('.$column.')<>\'\' ORDER BY id');$q->execute([$partnerLibrary]);
+ $emails=[];foreach($q->fetchAll(PDO::FETCH_COLUMN) as $value)foreach(email_addresses((string)$value) as $email)if(filter_var($email,FILTER_VALIDATE_EMAIL))$emails[strtolower($email)]=$email;
+ return implode(', ',array_values($emails));
+}
 function db(): PDO { static $p; if(!$p){$dsn=envv('DB_DSN');if(!$dsn)throw new RuntimeException('DB_DSN is not configured.');$p=new PDO($dsn,envv('DB_USER'),envv('DB_PASSWORD'),[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false]);}return $p; }
 function csrf_token(): string { return $_SESSION['csrf']??=bin2hex(random_bytes(32)); }
 function csrf_check(): void { if(!hash_equals((string)($_SESSION['csrf']??''),(string)($_POST['_csrf']??''))){http_response_code(400);exit('Request expired. Reload and try again.');} }
@@ -39,13 +56,13 @@ function is_super_user(): bool { return (user()['role']??'')==='super_user'; }
 function can_manage_all_submissions(): bool { return is_admin()||is_super_user(); }
 function can_manage_accounts(): bool { return is_admin(); }
 function can_edit(): bool { return in_array(user()['role']??'', ['admin','super_user','user'],true); }
-function can_delete_patron_notes(): bool { return is_admin()||is_super_user(); }
+function can_delete_patron_notes(): bool { return can_edit(); }
 function is_case_partner_institution(array $case): bool {
  if(can_manage_all_submissions()||(int)($case['institution_id']??0)===tenant_id()||($case['loan_type']??'')!=='CLS')return false;
  $partner=strtolower(trim((string)($case['partner_name']??'')));$institution=strtolower(trim((string)(user()['institution_name']??'')));$label=strtolower(trim(institution_label((string)(user()['institution_name']??''))));
  return $partner!==''&&($partner===$institution||$partner===$label);
 }
-function can_view_patron_account(array $case): bool { return !is_case_partner_institution($case); }
+function can_view_patron_account(array $case): bool { return can_edit(); }
 function flash(string $m,string $k='success'): void { $_SESSION['flash']=[$m,$k]; }
 function take_flash(): ?array { $f=$_SESSION['flash']??null;unset($_SESSION['flash']);return $f; }
 function redirect(string $u='index.php'): never { header('Location: '.$u);exit; }
@@ -129,9 +146,43 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember): arr
  return $out;
 }
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
+function alma_case_item_field(array $record,array $names): mixed { foreach($record as $key=>$value)if(is_string($key)&&in_array(strtolower($key),$names,true))return $value;return null; }
+function alma_case_field_text(mixed $value): string { if(is_array($value)){ $parts=[];foreach($value as $entry)$parts[]=alma_case_field_text($entry);return implode(' ',$parts); }return trim((string)$value); }
+function alma_item_policy_location_text(array $item,array $loan=[]): string {
+ $itemData=$item['item_data']??$item;$loanData=$loan['item_data']??$loan;
+ $policy=alma_case_item_field(is_array($itemData)?$itemData:[],['policy','item_policy','policy_code']);if($policy===null)$policy=alma_case_item_field(is_array($loanData)?$loanData:[],['policy','item_policy','policy_code']);
+ $location=alma_case_item_field(is_array($itemData)?$itemData:[],['location','location_code','item_location']);if($location===null)$location=alma_case_item_field(is_array($loanData)?$loanData:[],['location','location_code','item_location']);
+ return strtolower(alma_case_field_text($policy).' '.alma_case_field_text($location));
+}
+function alma_item_case_type(array $item,array $loan=[]): ?string {
+ $text=alma_item_policy_location_text($item,$loan);
+ if(preg_match('/illiad|(?:^|[^a-z0-9])ill(?:$|[^a-z0-9])/i',$text))return 'ILL';
+ if(preg_match('/suny|(?:^|[^a-z0-9])p2p(?:$|[^a-z0-9])/i',$text))return 'P2P';
+ return null;
+}
+function alma_find_item_institution(mixed $record): string {
+ if(!is_array($record))return '';
+ foreach($record as $key=>$value)if(is_string($key)&&in_array(strtolower($key),['institution','institution_name','institution_code'],true)){
+  if(is_array($value)){foreach(['name','desc','description','value','code'] as $part)if(isset($value[$part])&&!is_array($value[$part])&&trim((string)$value[$part])!=='')return trim((string)$value[$part]);}
+  elseif(trim((string)$value)!=='')return trim((string)$value);
+ }
+ foreach($record as $value)if(is_array($value)){$found=alma_find_item_institution($value);if($found!=='')return $found;}
+ return '';
+}
+function alma_item_partner_university(array $item,array $loan=[]): string {
+ $records=[$item['item_data']??null,$item,$loan['item_data']??null,$loan];
+ $value='';foreach($records as $record){$candidate=alma_find_item_institution($record);if($candidate!==''){$value=$candidate;break;}}
+ if($value==='')return '';
+ $q=db()->prepare('SELECT name FROM institutions WHERE active=1 AND (LOWER(TRIM(name))=LOWER(TRIM(?)) OR LOWER(TRIM(slug))=LOWER(TRIM(?)) OR LOWER(TRIM(alma_code))=LOWER(TRIM(?))) LIMIT 1');$q->execute([$value,$value,$value]);$name=$q->fetchColumn();if($name)return (string)$name;
+ $labels=['au'=>'American University','cua'=>'Catholic University of America','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University','georgetown'=>'Georgetown University','gw'=>'George Washington University','howard'=>'Howard University','marymount'=>'Marymount University','trinitydc'=>'Trinity Washington University','udc'=>'University of the District of Columbia'];$aliases=['AU'=>'au','AU LAW'=>'au','CU'=>'cua','CU LAW'=>'cua','GA'=>'gallaudet','GM'=>'gmu','GT'=>'georgetown','GT LAW'=>'georgetown','GW'=>'gw','GW HIM'=>'gw','GW LAW'=>'gw','HU'=>'howard','HU LOUIS'=>'howard','HU LAW'=>'howard','MU'=>'marymount','TU'=>'trinitydc','UDC'=>'udc','UDC LAW'=>'udc'];$slug=$aliases[strtoupper($value)]??'';
+ if($slug!==''){$q=db()->prepare('SELECT name FROM institutions WHERE active=1 AND LOWER(TRIM(slug))=LOWER(TRIM(?)) LIMIT 1');$q->execute([$slug]);$name=$q->fetchColumn();if($name)return (string)$name;}
+ $q=db()->prepare('SELECT university FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) ORDER BY id LIMIT 1');$q->execute([$value]);$name=$q->fetchColumn();if($name)return (string)$name;
+ if($slug!==''&&isset($labels[$slug])){$q->execute([$labels[$slug]]);$name=$q->fetchColumn();if($name)return (string)$name;return $labels[$slug];}
+ return $value;
+}
 function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool $requestIdPresent,bool $requestLookupOk,bool $hasResourceSharing,string $profileType): array {
  $profile=strtoupper(trim($profileType));$category=null;$reason='Alma did not provide enough information to confirm the loan category.';
- if($requestIdPresent&&!$requestLookupOk)return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];
+ if($requestIdPresent&&!$requestLookupOk){if($homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0)return ['category'=>'CLS','status'=>'confirmed','reason'=>'The loan is attached to a patron account at another configured WRLC institution.','is_resource_sharing'=>null];return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];}
  if($hasResourceSharing){
   if($profile==='NCIP_P2P'){$category='P2P';$reason='The linked Alma Resource Sharing partner uses the NCIP P2P profile.';}
   elseif($profile==='FULFILLMENT_NETWORK'&&$homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0){$category='CLS';$reason='The linked Alma request uses the Fulfillment Network profile and the item record belongs to another configured Alma institution.';}
@@ -139,8 +190,7 @@ function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool 
   else $reason='The linked Alma Resource Sharing workflow does not identify P2P, ILL, or CLS unambiguously.';
  }elseif($homeMember!==''&&$itemMember!==''){
   if(strcasecmp($homeMember,$itemMember)===0){$category='local';$reason='The loaned item is owned by the patron’s home Alma institution and no Resource Sharing request is linked.';}
-  elseif($requestIdPresent&&$requestLookupOk){$category='CLS';$reason='The item is owned by another configured WRLC Alma institution, and the linked Alma request is not a Resource Sharing request.';}
-  else $reason='The item belongs to another Alma institution, but the circulation workflow could not be verified as CLS.';
+  else{$category='CLS';$reason='The loan is attached to a patron account at another configured WRLC institution.';}
  }
  return ['category'=>$category,'status'=>$category===null?'unresolved':'confirmed','reason'=>$reason,'is_resource_sharing'=>$hasResourceSharing];
 }
@@ -169,6 +219,8 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  $itemMember=(string)($item['_alma_member']??$item['item_data']['_alma_member']??'');
  $classification=alma_classify_loan_evidence($homeMember,$itemMember,$requestIdPresent,$requestOk,$hasResourceSharing,$profile);
  $configured=json_decode(envv('ALMA_PARTNER_CASE_TYPES','{}'),true);if(is_array($configured)&&$partnerCode!==''&&isset($configured[$partnerCode])){$mapped=strtoupper(trim((string)$configured[$partnerCode]));if(in_array($mapped,['LOCAL','CLS','P2P','ILL'],true)){$classification['category']=$mapped==='LOCAL'?'local':$mapped;$classification['status']='confirmed';$classification['reason']='The Alma partner has an explicit ALMA_PARTNER_CASE_TYPES configuration.';}}
+ $itemType=alma_item_case_type($item,$loan);if($itemType!==null){$classification['category']=$itemType;$classification['status']='confirmed';$classification['reason']='The Alma item Policy or Location identifies this as '.$itemType.'.';}
+ $itemInstitution=alma_item_partner_university($item,$loan);
  $institutions=db()->query('SELECT id,slug,name,alma_code,partner_email FROM institutions WHERE active=1')->fetchAll();$details=$partner['partner_details']??[];$partnerMatchDetails=$details;
  $matched=null;
  if($classification['category']!=='local'){
@@ -180,9 +232,35 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  if($matched&&strcasecmp((string)$matched['slug'],$homeMember)===0)$matched=null;
  $partnerEmail=$matched?trim((string)($matched['partner_email']??'')):'';if(!filter_var($partnerEmail,FILTER_VALIDATE_EMAIL))$partnerEmail=$matched?alma_partner_contact_email($partner):'';
  $partnerName=$matched?(string)$matched['name']:'';
+ if($classification['category']==='ILL')$partnerName=$itemInstitution!==''?$itemInstitution:'ILL';
+ elseif($classification['category']==='P2P')$partnerName=$itemInstitution!==''?$itemInstitution:(str_contains(alma_item_policy_location_text($item,$loan),'suny')?'SUNY':'P2P');
+ $resourceSharingEmail=resource_sharing_contact_email($partnerName,(string)($classification['category']??''));if($resourceSharingEmail!=='')$partnerEmail=$resourceSharingEmail;
+ $itemInstitutionMatched=false;if($itemInstitution!==''){$q=db()->prepare('SELECT 1 FROM institutions WHERE active=1 AND LOWER(TRIM(name))=LOWER(TRIM(?)) UNION ALL SELECT 1 FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) LIMIT 1');$q->execute([$itemInstitution,$itemInstitution]);$itemInstitutionMatched=(bool)$q->fetchColumn();}
  $lendingIdentifier=$itemMember!==''?$itemMember:$partnerCode;
- if($classification['category']!==null&&$classification['category']!=='local'&&!$matched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
- return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched];
+ if($classification['category']!==null&&$classification['category']!=='local'&&!$matched&&!$itemInstitutionMatched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
+ return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched||$itemInstitutionMatched];
+}
+function alma_classify_patron_loans(array $patron,string $homeMember,array $loans): array {
+ $homeId=trim((string)($patron['primary_id']??''));
+ foreach($loans as $index=>$loan){
+  if(!is_array($loan))continue;
+  $loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);
+  $item=['_alma_member'=>$loanMember];
+  // Always inspect the full item record: Policy/Location may already identify
+  // P2P or ILL on the loan, but institution is needed to select the right
+  // university contact instead of the generic SUNY/ILL fallback.
+  if(trim((string)($loan['item_barcode']??''))!==''){$lookup=alma_lookup_item($loanMember?:$homeMember,(string)$loan['item_barcode']);if($lookup['ok']&&is_array($lookup['data'])){$item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];if(!is_array($item))$item=[];$item['_alma_member']=$lookup['data']['_alma_member']??$loanMember;}}
+  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId);
+  $category=$classification['category'];
+  if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
+  $classification['category']=$category;
+  $partnerName=(string)($classification['partner_name']??'');$contactEmail=resource_sharing_contact_email($partnerName,(string)($category??''));
+  $loans[$index]['_claims_case_type']=$category??'unconfirmed';
+  $loans[$index]['_claims_classification_status']=$category!==null?'confirmed':($classification['status']??'unresolved');
+  $loans[$index]['_claims_partner_name']=$partnerName;
+  $loans[$index]['_claims_partner_email']=$contactEmail!==''?$contactEmail:(string)($classification['partner_email']??'');
+ }
+ return $loans;
 }
 function alma_lookup_loan(string $patronId,string $barcode,string $preferredMember='',string $loanMember='',string $loanPrimaryId=''): ?array {
  $loans=$loanMember!==''&&$loanPrimaryId!==''?alma_lookup_account_loans($loanPrimaryId,$loanMember):alma_lookup_loans($patronId,$preferredMember);
@@ -222,7 +300,9 @@ function notify_case(array $c,string $template,string $subject,string $body,?str
  $channel=str_starts_with($template,'partner_')?'partner':email_only_preference($c);if($channel==='none')return [];
  $to=$channel==='partner'?$c['partner_email']:($email?:$c['patron_email']);if(!$to)return [];
  $headers=['From: '.envv('MAIL_FROM_NAME','WRLC Claims Returned').' <'.envv('MAIL_FROM','claims@localhost').'>','Content-Type: text/plain; charset=UTF-8'];
- $ok=@mail($to,$subject,$body,implode("\r\n",$headers));return [save_notification((int)$c['id'],'email',$to,$template,$ok,$ok?'':'mail() rejected the message.')];
+ $recipients=$channel==='partner'?email_addresses((string)$to):[(string)$to];$results=[];
+ foreach($recipients as $recipient){$ok=filter_var($recipient,FILTER_VALIDATE_EMAIL)&&@mail($recipient,$subject,$body,implode("\r\n",$headers));$results[]=save_notification((int)$c['id'],'email',$recipient,$template,$ok,$ok?'':'mail() rejected the message or the address is invalid.');}
+ return $results;
 }
 function notify_case_assignee(array $case,array $assignee): array {
  $to=trim((string)($assignee['email']??''));
@@ -262,5 +342,16 @@ function alma_note_email_statuses(array $notes,string $patronId): array {
 }
 function patron_notice_text(array $c,string $text): string { $details="Item details:\nTitle: {$c['item_title']}\nBarcode: ".($c['item_barcode']?:'Not available')."\nAuthor: ".($c['item_author']?:'Not available')."\nMMS ID: ".($c['item_mms_id']?:'Not available');return $text."\n\n{$details}\nCase: {$c['public_id']}"; }
 function notice_message(array $c,string $text): array { $body="Hello {$c['patron_name']},\n\n".patron_notice_text($c,$text)."\n\nPlease contact your library if you have questions.";return notify_case($c,'milestone','Claims Returned update: '.$c['item_title'],$body); }
-function render_start(string $title): void { $f=take_flash();$u=user();echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'.h($title).' · Claims Returned</title><link rel="stylesheet" href="assets/app.css?v=claims-queue-sort-20261111"><script src="assets/patron-notes.js" defer></script></head><body><header><a class="brand" href="index.php">WRLC <span>Claims Returned</span></a><nav><a href="about.php">About</a>';if(logged_in()){echo '<span>'.h($u['display_name']).' · '.h(institution_label((string)$u['institution_name'])).'</span>';if(can_manage_accounts())echo '<a href="admin.php">Admin</a>';elseif(is_super_user())echo '<a href="admin.php">Institution accounts</a>';echo '<a href="logout.php">Sign out</a>';}echo '</nav></header><main>';if($f)echo '<div class="flash '.h($f[1]).'">'.h($f[0]).'</div>'; }
-function render_end(): void { echo '</main><footer>Claims Returned · Consortium case tracking</footer></body></html>'; }
+function render_start(string $title): void { $f=take_flash();$u=user();echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'.h($title).' · Claims Returned</title><link rel="icon" type="image/png" href="assets/brand/wrlc-logo-8.png"><link rel="apple-touch-icon" href="assets/brand/wrlc-logo-8.png"><link rel="stylesheet" href="assets/app.css?v=contacts-fit-20261113"><script src="assets/patron-notes.js" defer></script></head><body><header><a class="brand" href="index.php"><img class="brand-logo" src="assets/brand/wrlc-logo-8-white.png" alt="WRLC"><span>Claims Returned</span></a><nav><a class="header-nav-button" href="about.php">About</a>';if(logged_in()){echo '<a class="header-nav-button" href="admin.php?section=resource-sharing">Resource Sharing Contact List</a>';if(is_super_user())echo '<a class="header-nav-button" href="admin.php">Institution accounts</a>';echo '<span>'.h($u['display_name']).' · '.h(institution_label((string)$u['institution_name'])).'</span>';if(can_manage_accounts())echo '<a class="header-nav-button" href="admin.php">Admin</a>';echo '<a class="header-nav-button header-signout" href="logout.php">Sign out</a>';}echo '</nav></header><main>';if($f)echo '<div class="flash '.h($f[1]).'">'.h($f[0]).'</div>'; }
+function render_end(): void {
+ echo '</main><svg class="ui-icon-definitions" aria-hidden="true" focusable="false"><symbol id="ui-icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></symbol><symbol id="ui-icon-contacts" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M7 5V3h10v2M7 10h.01M11 10h6M7 15h.01M11 15h6"/></symbol><symbol id="ui-icon-users" viewBox="0 0 24 24"><path d="M16 20v-1.5a4.5 4.5 0 0 0-4.5-4.5h-4A4.5 4.5 0 0 0 3 18.5V20m6.5-9a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7-7.7a4 4 0 0 1 0 7.7m1 3h.5a4 4 0 0 1 4 4V20"/></symbol><symbol id="ui-icon-logout" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5m5 5H3m9-9h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7"/></symbol><symbol id="ui-icon-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol><symbol id="ui-icon-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></symbol><symbol id="ui-icon-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3m-4 5v2"/></symbol><symbol id="ui-icon-building" viewBox="0 0 24 24"><path d="M3 21h18M5 21V5l7-3 7 3v16M9 9h1m4 0h1m-6 4h1m4 0h1m-5 8v-4h4v4"/></symbol><symbol id="ui-icon-book" viewBox="0 0 24 24"><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22zM4 4.5v15A2.5 2.5 0 0 1 6.5 17H20"/></symbol><symbol id="ui-icon-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></symbol><symbol id="ui-icon-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18m-13 4h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></symbol><symbol id="ui-icon-note" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8m-8 4h8"/></symbol><symbol id="ui-icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="ui-icon-network" viewBox="0 0 24 24"><circle cx="6" cy="12" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="m8.7 10.7 6.6-3.4m-6.6 6 6.6 3.4"/></symbol><symbol id="ui-icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="ui-icon-edit" viewBox="0 0 24 24"><path d="m15 5 4 4M4 20l4.5-1 11-11a2.8 2.8 0 0 0-4-4l-11 11z"/></symbol><symbol id="ui-icon-trash" viewBox="0 0 24 24"><path d="M4 7h16m-10 0V4h4v3m4 0-1 14H7L6 7m3 4v6m6-6v6"/></symbol><symbol id="ui-icon-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5h16v-5"/></symbol><symbol id="ui-icon-save" viewBox="0 0 24 24"><path d="M4 3h14l3 3v15H3V4a1 1 0 0 1 1-1Zm3 0v6h10V3m-9 18v-8h9v8"/></symbol><symbol id="ui-icon-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z"/><path d="m9 12 2 2 4-4"/></symbol><symbol id="ui-icon-arrow" viewBox="0 0 24 24"><path d="M19 12H5m7 7-7-7 7-7"/></symbol><symbol id="ui-icon-location" viewBox="0 0 24 24"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></symbol></svg><script>
+(()=>{
+ const svgNs="http://www.w3.org/2000/svg";
+ const addIcon=(element,name,extra="")=>{if(!name||element.querySelector(":scope > .ui-icon"))return;const icon=document.createElementNS(svgNs,"svg");icon.setAttribute("class",`ui-icon ${extra}`.trim());icon.setAttribute("viewBox","0 0 24 24");icon.setAttribute("aria-hidden","true");icon.setAttribute("focusable","false");const use=document.createElementNS(svgNs,"use");use.setAttribute("href",`#ui-icon-${name}`);icon.append(use);element.prepend(icon);element.classList.add("has-ui-icon");};
+ const identify=text=>{const value=String(text||"").trim().toLowerCase();if(/case type/.test(value))return"location";if(/sign out|log out/.test(value))return"logout";if(/resource sharing|partner contact/.test(value))return"contacts";if(/institution|university/.test(value))return"building";if(/password/.test(value))return"lock";if(/email/.test(value))return"mail";if(/patron|user account|full name|assigned staff|staff contact/.test(value))return"user";if(/partner|library/.test(value))return"network";if(/item|barcode|author/.test(value))return"book";if(/search|look up|lookup|find accounts/.test(value))return"search";if(/due date|next action|date/.test(value))return"calendar";if(/note|activity|history|resolution/.test(value))return"note";if(/case|workflow/.test(value))return"check";if(/access|role|admin|institution accounts/.test(value))return"shield";if(/about/.test(value))return"info";if(/csv|import|upload/.test(value))return"upload";return"";};
+ const actionIcon=text=>{const value=String(text||"").trim().toLowerCase();if(/active cases/.test(value))return"book";if(/sign out|log out/.test(value))return"logout";if(/delete|remove/.test(value))return"trash";if(/edit/.test(value))return"edit";if(/save|update/.test(value))return"save";if(/add|new case|create/.test(value))return"plus";if(/import|upload/.test(value))return"upload";if(/search|look up|lookup|find accounts/.test(value))return"search";if(/return|back to/.test(value))return"arrow";if(/close|complete|confirm|found/.test(value))return"check";if(/sign in|account|admin/.test(value))return"user";if(/view|patron/.test(value))return"user";return"";};
+ document.querySelectorAll("label:not(.checkbox-label)").forEach(label=>addIcon(label,identify(label.textContent),"field-icon"));
+ document.querySelectorAll("h1,h2,h3").forEach(heading=>addIcon(heading,identify(heading.textContent),"heading-icon"));
+ document.querySelectorAll("header nav a,.page-title>a,.button,button").forEach(action=>addIcon(action,actionIcon(action.textContent),"action-icon"));
+})();
+</script><footer>Claims Returned · Consortium case tracking</footer></body></html>'; }

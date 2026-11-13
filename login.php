@@ -10,5 +10,5 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
  $error='Email or password was not recognized.';
 }
 render_start('Sign in');
-echo '<section class="login card"><h1>Claims Returned</h1><p>Sign in with your consortium staff account.</p>';if($error)echo '<div class="flash error">'.h($error).'</div>';echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Email<input type="email" name="email" autocomplete="username" required autofocus></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form><p><a href="about.php">About this site and how to use it</a></p></section>';
+echo '<section class="login card"><h1>Claims Returned</h1><p>Sign in with your consortium staff account.</p>';if($error)echo '<div class="flash error">'.h($error).'</div>';echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Email<input type="email" name="email" autocomplete="username" required autofocus></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button>Sign in</button></form><p class="login-about"><a href="about.php">About this site and how to use it</a></p></section>';
 render_end();

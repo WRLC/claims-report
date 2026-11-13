@@ -13,7 +13,7 @@ function patron_note_json(bool $ok,string $message,int $status=200): never {
 
 if($_SERVER['REQUEST_METHOD']!=='POST')patron_note_json(false,'Method not allowed.',405);
 csrf_check();
-if(!can_delete_patron_notes())patron_note_json(false,'Only admins and super users can delete patron notes.',403);
+if(!can_delete_patron_notes())patron_note_json(false,'Your account does not have permission to delete patron notes.',403);
 
 $patronId=trim((string)($_POST['patron_primary_id']??''));
 $noteKey=trim((string)($_POST['note_key']??''));
