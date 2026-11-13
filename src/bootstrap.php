@@ -219,7 +219,12 @@ function alma_classify_patron_loans(array $patron,string $homeMember,array $loan
   $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId);
   $category=$classification['category'];
   if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
+  $classification['category']=$category;
+  $partnerName=(string)($classification['partner_name']??'');$contactEmail=resource_sharing_contact_email($partnerName,(string)($category??''));
   $loans[$index]['_claims_case_type']=$category??'unconfirmed';
+  $loans[$index]['_claims_classification_status']=$category!==null?'confirmed':($classification['status']??'unresolved');
+  $loans[$index]['_claims_partner_name']=$partnerName;
+  $loans[$index]['_claims_partner_email']=$contactEmail!==''?$contactEmail:(string)($classification['partner_email']??'');
  }
  return $loans;
 }
