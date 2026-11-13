@@ -90,8 +90,9 @@ function alma_item_checkin_status(array $case): array {
  $item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];$data=is_array($item)?($item['item_data']??$item):[];
  $value=static function(mixed $field): string { if(is_array($field))return trim((string)($field['desc']??$field['value']??''));return trim((string)$field); };
  $base=$value($data['base_status']??'');$process=$value($data['process_type']??'');$normalized=strtolower($base);$processNormalized=strtolower($process);
- if(str_contains($processNormalized,'loan'))return ['ok'=>true,'state'=>'checked_out','label'=>'Still checked out','message'=>'Alma reports the item is still on loan.','base_status'=>$base,'process_type'=>$process,'member'=>$lookup['data']['_alma_member']??''];
- if(in_array(strtolower($base),['1','in place','item in place'],true))return ['ok'=>true,'state'=>'checked_in','label'=>'Checked in','message'=>'Alma reports the item is in place.','base_status'=>$base,'process_type'=>$process,'member'=>$lookup['data']['_alma_member']??''];
+ $checkinDate='';foreach(['last_return_date','last_return_date_time','last_returned_date','last_checkin_date','last_checkin_date_time','last_check_in_date','checkin_date'] as $dateKey){$checkinDate=$value($data[$dateKey]??'');if($checkinDate!=='')break;}
+ if(str_contains($processNormalized,'loan'))return ['ok'=>true,'state'=>'checked_out','label'=>'Still checked out','message'=>'Alma reports the item is still on loan.','base_status'=>$base,'process_type'=>$process,'checkin_date'=>'','member'=>$lookup['data']['_alma_member']??''];
+ if(in_array(strtolower($base),['1','in place','item in place'],true))return ['ok'=>true,'state'=>'checked_in','label'=>'Checked in','message'=>'Alma reports the item is in place.','base_status'=>$base,'process_type'=>$process,'checkin_date'=>$checkinDate,'member'=>$lookup['data']['_alma_member']??''];
  if($base!==''||$process!=='')return ['ok'=>true,'state'=>'not_confirmed','label'=>'Not confirmed checked in','message'=>'Alma reports a status other than “Item in place”.','base_status'=>$base,'process_type'=>$process,'member'=>$lookup['data']['_alma_member']??''];
  return ['ok'=>false,'state'=>'unknown','label'=>'Unable to verify','message'=>'Alma returned the item record without a check-in status.'];
 }
