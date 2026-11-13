@@ -29,7 +29,22 @@ if($partnerToken!==''){
     $q=db()->prepare("SELECT c.*,i.name institution_name,i.slug institution_slug FROM claims_cases c JOIN institutions i ON i.id=c.institution_id WHERE c.partner_token_hash=? AND c.stage<>'closed' AND (c.partner_token_expires_at IS NULL OR c.partner_token_expires_at>UTC_TIMESTAMP()) LIMIT 1");
     $q->execute([hash('sha256',$partnerToken)]);$c=$q->fetch();
     if(!$c){http_response_code(404);exit('Partner link is invalid or expired.');}
-    render_start('Partner search');echo '<section class="card"><p class="eyebrow">Partner search · '.h($c['institution_name']).'</p><h1>'.h($c['item_title']).'</h1><p>'.h($c['item_author']??'').' · Barcode '.h($c['item_barcode']??'').'</p><p>Current status: <span class="badge">'.h(str_replace('_',' ',$c['partner_status'])).'</span></p></section>';render_end();exit;
+    render_start('Partner search');echo '<section class="card"><p class="eyebrow">Partner search · '.h($c['institution_name']).'</p><h1>'.h($c['item_title']).'</h1><p>'.h($c['item_author']??'').' · Barcode '.h($c['item_barcode']??'').'</p><p>Current status: <span class="badge">'.h(str_replace('_',' ',$c['partner_status'])).'</span></p></section>';if($case&&can_edit())echo '<script>
+(()=>{
+ const line=document.getElementById("case-item-status");if(!line)return;
+ const add=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;line.append(node);return node;};
+ const displayDate=value=>{if(!value)return "date unavailable";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
+ line.hidden=false;line.classList.add("muted");line.textContent="Checking item status in Alma…";
+ fetch("case-item-status.php?id='.$id.'",{credentials:"same-origin",headers:{Accept:"application/json"}}).then(async response=>{const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||"Unable to verify item status.");return result.data;}).then(status=>{
+  line.replaceChildren();line.classList.remove("muted","checked-in","checked-out","missing");
+  if(status.state==="checked_in"){line.classList.add("checked-in");const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
+  else if(status.state==="checked_out"){line.classList.add("checked-out");const icon=add("span","patron-item-status-icon checked-out","!");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
+  else if(status.state==="missing"){line.classList.add("missing");const icon=add("span","patron-item-status-icon missing","×");icon.setAttribute("aria-hidden","true");add("span","","Reported missing");}
+  else{line.classList.add("muted");line.textContent=status.message||"Alma could not confirm the item status.";}
+ }).catch(error=>{line.classList.add("muted");line.textContent=error.message||"Unable to verify item status.";});
+})();
+</script>';
+render_end();exit;
 }
 
 require_login();
@@ -306,7 +321,7 @@ if(!$case){
 }else{
     $checkinStatus=($case['stage']==='closed'&&$case['resolution']==='complete')?alma_item_checkin_status($case):null;
     $events=db()->prepare('SELECT e.*,u.display_name FROM case_events e LEFT JOIN users u ON u.id=e.actor_user_id WHERE e.case_id=? ORDER BY e.created_at DESC');$events->execute([$id]);$history=$events->fetchAll();$staffq=db()->prepare('SELECT id,display_name FROM users WHERE institution_id=? AND active=1 ORDER BY display_name');$staffq->execute([(int)$case['institution_id']]);$staff=$staffq->fetchAll();$finalSearch=search_final_number($case);$visibleSteps=$case['stage']==='closed'?$finalSearch:4;
-    echo '<div class="page-title"><div><p class="eyebrow">'.h($case['institution_name']).' · '.h($case['public_id']).'</p><h1>'.h($case['item_title']).'</h1><p class="muted">'.h($case['patron_name']).' · '.h($case['patron_primary_id']).'</p></div><div class="page-actions"><a href="index.php">← Queue</a>';if(can_manage_all_submissions())echo '<form method="post" class="delete-top" onsubmit="return confirm(\'Permanently delete case '.h($case['public_id']).'?\');"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="delete"><input type="hidden" name="confirm_delete" value="DELETE"><button class="danger">Delete case</button></form>';echo '</div></div>';
+    echo '<div class="page-title"><div><p class="eyebrow">'.h($case['institution_name']).' · '.h($case['public_id']).'</p><h1>'.h($case['item_title']).'</h1><p class="muted">'.h($case['patron_name']).' · '.h($case['patron_primary_id']).'</p></div><div class="page-actions"><a href="index.php">← Queue</a>';if(can_manage_all_submissions())echo '<form method="post" class="delete-top" onsubmit="return confirm(\'Permanently delete case '.h($case['public_id']).'?\');"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="delete"><input type="hidden" name="confirm_delete" value="DELETE"><button class="danger">Delete case</button></form>';echo '</div></div><p id="case-item-status" class="patron-item-status-row" hidden></p>';
     if($checkinStatus){$updatedAt=date('M j, Y g:i:s a T');echo '<section class="card alma-checkin alma-checkin-'.h($checkinStatus['state']).'"><div><p class="eyebrow">Live Alma item check</p><h2>Item check-in status</h2><span class="badge">'.h($checkinStatus['label']).'</span><p>'.h($checkinStatus['message']).'</p>';if(!empty($checkinStatus['base_status']))echo '<p><strong>Alma item status:</strong> '.h($checkinStatus['base_status']).'</p>';if(!empty($checkinStatus['process_type']))echo '<p><strong>Alma process:</strong> '.h($checkinStatus['process_type']).'</p>';echo '<small>Checked at '.h($updatedAt).'</small></div></section>';}
     if(can_view_patron_account($case))echo '<section class="card patron-account"><h2>Patron account</h2><details id="patron-account-details" data-case-id="'.$id.'" data-url="patron-account.php?id='.$id.'"><summary>View patron account summary</summary><p class="muted account-info-status">Patron details and notes will load from Alma when expanded.</p><div class="account-info-data"></div></details></section>';
     echo '<div class="detail-grid"><section class="card"><h2>Case progress</h2><ol class="steps">';
