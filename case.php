@@ -36,9 +36,10 @@ if($partnerToken!==''){
  const displayDate=value=>{if(!value)return "date unavailable";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
  line.hidden=false;line.classList.add("muted");line.textContent="Checking item status in Alma…";
  fetch("case-item-status.php?id='.$id.'",{credentials:"same-origin",headers:{Accept:"application/json"}}).then(async response=>{const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||"Unable to verify item status.");return result.data;}).then(status=>{
-  line.replaceChildren();line.classList.remove("muted");
-  if(status.state==="checked_in"){const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
-  else if(status.state==="checked_out"){const icon=add("span","patron-item-status-icon checked-out","×");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
+  line.replaceChildren();line.classList.remove("muted","checked-in","checked-out","missing");
+  if(status.state==="checked_in"){line.classList.add("checked-in");const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
+  else if(status.state==="checked_out"){line.classList.add("checked-out");const icon=add("span","patron-item-status-icon checked-out","!");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
+  else if(status.state==="missing"){line.classList.add("missing");const icon=add("span","patron-item-status-icon missing","×");icon.setAttribute("aria-hidden","true");add("span","","Reported missing");}
   else{line.classList.add("muted");line.textContent=status.message||"Alma could not confirm the item status.";}
  }).catch(error=>{line.classList.add("muted");line.textContent=error.message||"Unable to verify item status.";});
 })();
