@@ -9,7 +9,7 @@ $caseId=(int)($_GET['id']??0);
 $case=$caseId?case_by_id($caseId):null;
 if(!$case){http_response_code(404);echo json_encode(['ok'=>false,'error'=>'Case not found.']);exit;}
 if(!can_edit()){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Access denied.']);exit;}
-if(!can_view_patron_account($case)){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Patron account details are available only to the owning institution.']);exit;}
+if(!can_view_patron_account($case)){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Access denied.']);exit;}
 
 $lookup=alma_lookup_user((string)$case['institution_slug'],(string)$case['patron_primary_id']);
 if(!$lookup['ok']||!is_array($lookup['data'])){
