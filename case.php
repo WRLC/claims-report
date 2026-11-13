@@ -156,6 +156,17 @@ Case: {$public}";notify_case($case,'partner_request','Partner library search req
         $n=(int)($_POST['search_number']??0);$status=(string)($_POST['search_status']??'');$note=trim((string)($_POST['search_note']??''));
         if($n===0&&$case['stage']==='search_1')$n=1;
         if($n<1||$n>4||!in_array($status,['not_found','complete'],true)){flash('Choose a valid search status.','error');redirect('case.php?id='.$id.'&edit_search='.$n);}
+        if($status==='complete'&&empty($_POST['item_checkin_confirmed'])){
+            $itemStatus=alma_item_checkin_status($case);
+            if(($itemStatus['state']??'unknown')!=='checked_in'){
+                render_start('Confirm item check-in');
+                echo '<section class="card"><p class="eyebrow">Before closing this case</p><h1>Check the item in Alma</h1>';
+                if(($itemStatus['state']??'unknown')==='checked_out')echo '<p><strong>Alma still shows this item as checked out.</strong> Make sure the item has been checked in before closing the case.</p>';
+                else echo '<p><strong>Alma could not confirm that this item has been checked in.</strong> '.h($itemStatus['message']??'Check the item status before closing the case.').' Make sure the item has been checked in before closing the case.</p>';
+                echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="save_search"><input type="hidden" name="search_number" value="'.$n.'"><input type="hidden" name="search_status" value="complete"><input type="hidden" name="search_note" value="'.h($note).'"><input type="hidden" name="search_due_date" value="'.h(trim((string)($_POST['search_due_date']??''))).'"><input type="hidden" name="search_due_number" value="'.(int)($_POST['search_due_number']??$n).'"><input type="hidden" name="item_checkin_confirmed" value="1"><div class="actions"><button>Continue and close case</button><a class="button secondary" href="case.php?id='.$id.'&amp;edit_search='.$n.'">Return to case</a></div></form></section>';
+                render_end();exit;
+            }
+        }
         $oldStatus=search_status($case,$n);$isFinal=$status==='complete'||($n===4&&$status==='not_found');$nextStage=$isFinal?'closed':($n<4?'search_'.($n+1):'closed');$resolution=$isFinal?($status==='complete'?'complete':'not_found'):'';$closed=$isFinal?gmdate('Y-m-d H:i:s'):null;$next=$isFinal?null:($case['search_'.($n+1).'_due_at']??gmdate('Y-m-d',strtotime('+'.($n+1).' weeks')));
         $q=db()->prepare("UPDATE claims_cases SET search_{$n}_at=COALESCE(search_{$n}_at,UTC_TIMESTAMP()),search_{$n}_by=?,search_{$n}_result=?,search_{$n}_status=?,stage=?,resolution=?,resolution_note=?,closed_at=?,next_action_at=? WHERE id=? AND institution_id=?");$q->execute([user()['id'],$note,$status,$nextStage,$resolution,$isFinal?$note:null,$closed,$next,$id,(int)$case['institution_id']]);$editedDue=trim((string)($_POST['search_due_date']??''));if($editedDue!==''&&preg_match('/^\d{4}-\d{2}-\d{2}$/',$editedDue)){$dueUpdate=db()->prepare("UPDATE claims_cases SET search_{$n}_due_at=? WHERE id=? AND institution_id=?");$dueUpdate->execute([$editedDue,$id,(int)$case['institution_id']]);}
         $case=case_by_id($id);event($id,'search_'.$n,($status==='complete'?'Search '.$n.' completed: item found':'Search '.$n.' completed: item not found'),['note'=>$note,'previous_status'=>$oldStatus]);
