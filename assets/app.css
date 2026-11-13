@@ -62,3 +62,12 @@ h1.has-ui-icon .heading-icon,h2.has-ui-icon .heading-icon,h3.has-ui-icon .headin
  .resource-sharing-table td:nth-child(5)::before{content:"Actions"}
  .resource-sharing-table td.empty::before{content:none}
 }
+
+.patron-item-status-row{display:inline-flex;align-items:center;gap:9px;margin:-10px 0 24px;padding:7px 12px;border-radius:999px;font-size:13px;font-weight:700}
+.patron-item-status-row.checked-in{background:#e3f5e9;color:#176b3b}
+.patron-item-status-row.checked-out{background:#fff2d2;color:#805400}
+.patron-item-status-row.missing{background:#fde5e2;color:#a42318}
+.patron-item-status-icon{display:inline-flex;width:22px;height:22px;flex:0 0 22px;align-items:center;justify-content:center;border-radius:50%;font-size:15px;font-weight:800;line-height:1}
+.patron-item-status-icon.checked-in{background:#dff3e6;color:#16734c}
+.patron-item-status-icon.checked-out{background:#ffe4a3;color:#805400}
+.patron-item-status-icon.missing{background:#f8c9c4;color:#a42318}
