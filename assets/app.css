@@ -33,3 +33,10 @@ header nav a.header-signout:hover{background:#8f1d14;border-color:#8f1d14}
 @media(max-width:720px){header{height:auto;min-height:66px;padding:10px 16px;gap:10px;flex-wrap:wrap}header nav{gap:6px;flex-wrap:wrap;justify-content:flex-end}header nav a.header-nav-button{padding:6px 8px;font-size:11px}}
 .login .login-about{margin:26px 0 0;text-align:center}
 .login .login-about a{color:#155f7d;text-decoration:underline;text-underline-offset:3px}
+.ui-icon-definitions{position:absolute;width:0;height:0;overflow:hidden}
+.ui-icon{display:inline-block;width:1em;height:1em;flex:0 0 auto;vertical-align:-.15em;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+label.has-ui-icon .field-icon{margin-right:7px;color:#47758b}
+h1.has-ui-icon .heading-icon,h2.has-ui-icon .heading-icon,h3.has-ui-icon .heading-icon{margin-right:8px;color:#47758b}
+.button.has-ui-icon,button.has-ui-icon,header nav a.has-ui-icon{display:inline-flex;align-items:center;gap:8px}
+.action-icon{width:1.05em;height:1.05em}
+@media(prefers-reduced-motion:reduce){.ui-icon{transition:none}}
