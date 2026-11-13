@@ -32,7 +32,7 @@ function admin_contact_university(string $value,array $institutions): ?string {
 $institutionNames=[
     'gw'=>'George Washington University','au'=>'American University','cua'=>'Catholic University of America',
     'udc'=>'University of the District of Columbia','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University',
-    'georgetown'=>'Georgetown University','howard'=>'Howard University','marymount'=>'Marymount University','scf'=>'WRLC','scf'=>'WRLC',
+    'georgetown'=>'Georgetown University','howard'=>'Howard University','marymount'=>'Marymount University','trinitydc'=>'Trinity Washington University','scf'=>'WRLC','scf'=>'WRLC',
 ];
 $configuredMembers=array_values(array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))),static fn(string $slug): bool=>$slug!==''&&alma_key($slug)!==''));
 if($adminMode){
