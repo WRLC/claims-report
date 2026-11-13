@@ -48,7 +48,12 @@ unset($note);
 $caseItemStatus=['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma could not confirm the item status.'];
 $liveItemStatus=alma_item_checkin_status($case);
 if(($liveItemStatus['state']??'')==='checked_in'){
-    $caseItemStatus=['state'=>'checked_in','checkin_date'=>(string)($liveItemStatus['checkin_date']??''),'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
+    $checkinDate=(string)($liveItemStatus['checkin_date']??'');
+    if($checkinDate==='')foreach(alma_lookup_patron_network_loans($patron,$member,'Complete',100) as $completedLoan){
+        $loanBarcode=strtolower(trim((string)($completedLoan['item_barcode']??$completedLoan['barcode']??'')));
+        if($loanBarcode!==''&&$loanBarcode===strtolower(trim((string)$case['item_barcode']))){$checkinDate=(string)($completedLoan['return_date']??'');break;}
+    }
+    $caseItemStatus=['state'=>'checked_in','checkin_date'=>$checkinDate,'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
 }elseif(($liveItemStatus['state']??'')==='checked_out'){
     $barcode=strtolower(trim((string)$case['item_barcode']));
     foreach(alma_lookup_patron_network_loans($patron,$member) as $activeLoan){
