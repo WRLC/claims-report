@@ -56,13 +56,13 @@ function is_super_user(): bool { return (user()['role']??'')==='super_user'; }
 function can_manage_all_submissions(): bool { return is_admin()||is_super_user(); }
 function can_manage_accounts(): bool { return is_admin(); }
 function can_edit(): bool { return in_array(user()['role']??'', ['admin','super_user','user'],true); }
-function can_delete_patron_notes(): bool { return is_admin()||is_super_user(); }
+function can_delete_patron_notes(): bool { return can_edit(); }
 function is_case_partner_institution(array $case): bool {
  if(can_manage_all_submissions()||(int)($case['institution_id']??0)===tenant_id()||($case['loan_type']??'')!=='CLS')return false;
  $partner=strtolower(trim((string)($case['partner_name']??'')));$institution=strtolower(trim((string)(user()['institution_name']??'')));$label=strtolower(trim(institution_label((string)(user()['institution_name']??''))));
  return $partner!==''&&($partner===$institution||$partner===$label);
 }
-function can_view_patron_account(array $case): bool { return !is_case_partner_institution($case); }
+function can_view_patron_account(array $case): bool { return can_edit()&&!is_case_partner_institution($case); }
 function flash(string $m,string $k='success'): void { $_SESSION['flash']=[$m,$k]; }
 function take_flash(): ?array { $f=$_SESSION['flash']??null;unset($_SESSION['flash']);return $f; }
 function redirect(string $u='index.php'): never { header('Location: '.$u);exit; }
