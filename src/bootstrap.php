@@ -152,6 +152,17 @@ function alma_item_case_type(array $item,array $loan=[]): ?string {
  if(preg_match('/suny|(?:^|[^a-z0-9])p2p(?:$|[^a-z0-9])/i',$text))return 'P2P';
  return null;
 }
+function alma_item_partner_university(array $item,array $loan=[]): string {
+ $records=[];foreach([$item['item_data']??null,$item,$loan['item_data']??null,$loan] as $record)if(is_array($record))$records[]=$record;
+ $value='';foreach($records as $record){$raw=alma_case_item_field($record,['institution','institution_name','institution_code']);if($raw===null)continue;$candidate='';if(is_array($raw)){foreach(['name','desc','description','value','code'] as $key)if(isset($raw[$key])&&trim((string)$raw[$key])!==''){$candidate=trim((string)$raw[$key]);break;}}else $candidate=trim((string)$raw);if($candidate!==''){$value=$candidate;break;}}
+ if($value==='')return '';
+ $q=db()->prepare('SELECT name FROM institutions WHERE active=1 AND (LOWER(TRIM(name))=LOWER(TRIM(?)) OR LOWER(TRIM(slug))=LOWER(TRIM(?)) OR LOWER(TRIM(alma_code))=LOWER(TRIM(?))) LIMIT 1');$q->execute([$value,$value,$value]);$name=$q->fetchColumn();if($name)return (string)$name;
+ $labels=['au'=>'American University','cua'=>'Catholic University of America','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University','georgetown'=>'Georgetown University','gw'=>'George Washington University','howard'=>'Howard University','marymount'=>'Marymount University','trinitydc'=>'Trinity Washington University','udc'=>'University of the District of Columbia'];$aliases=['AU'=>'au','AU LAW'=>'au','CU'=>'cua','CU LAW'=>'cua','GA'=>'gallaudet','GM'=>'gmu','GT'=>'georgetown','GT LAW'=>'georgetown','GW'=>'gw','GW HIM'=>'gw','GW LAW'=>'gw','HU'=>'howard','HU LOUIS'=>'howard','HU LAW'=>'howard','MU'=>'marymount','TU'=>'trinitydc','UDC'=>'udc','UDC LAW'=>'udc'];$slug=$aliases[strtoupper($value)]??'';
+ if($slug!==''){$q=db()->prepare('SELECT name FROM institutions WHERE active=1 AND LOWER(TRIM(slug))=LOWER(TRIM(?)) LIMIT 1');$q->execute([$slug]);$name=$q->fetchColumn();if($name)return (string)$name;}
+ $q=db()->prepare('SELECT university FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) ORDER BY id LIMIT 1');$q->execute([$value]);$name=$q->fetchColumn();if($name)return (string)$name;
+ if($slug!==''&&isset($labels[$slug])){$q->execute([$labels[$slug]]);$name=$q->fetchColumn();if($name)return (string)$name;return $labels[$slug];}
+ return $value;
+}
 function alma_classify_loan_evidence(string $homeMember,string $itemMember,bool $requestIdPresent,bool $requestLookupOk,bool $hasResourceSharing,string $profileType): array {
  $profile=strtoupper(trim($profileType));$category=null;$reason='Alma did not provide enough information to confirm the loan category.';
  if($requestIdPresent&&!$requestLookupOk){if($homeMember!==''&&$itemMember!==''&&strcasecmp($homeMember,$itemMember)!==0)return ['category'=>'CLS','status'=>'confirmed','reason'=>'The loan is attached to a patron account at another configured WRLC institution.','is_resource_sharing'=>null];return ['category'=>null,'status'=>'unresolved','reason'=>'The related Alma request could not be verified.','is_resource_sharing'=>null];}
@@ -192,6 +203,7 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  $classification=alma_classify_loan_evidence($homeMember,$itemMember,$requestIdPresent,$requestOk,$hasResourceSharing,$profile);
  $configured=json_decode(envv('ALMA_PARTNER_CASE_TYPES','{}'),true);if(is_array($configured)&&$partnerCode!==''&&isset($configured[$partnerCode])){$mapped=strtoupper(trim((string)$configured[$partnerCode]));if(in_array($mapped,['LOCAL','CLS','P2P','ILL'],true)){$classification['category']=$mapped==='LOCAL'?'local':$mapped;$classification['status']='confirmed';$classification['reason']='The Alma partner has an explicit ALMA_PARTNER_CASE_TYPES configuration.';}}
  $itemType=alma_item_case_type($item,$loan);if($itemType!==null){$classification['category']=$itemType;$classification['status']='confirmed';$classification['reason']='The Alma item Policy or Location identifies this as '.$itemType.'.';}
+ $itemInstitution=alma_item_partner_university($item,$loan);
  $institutions=db()->query('SELECT id,slug,name,alma_code,partner_email FROM institutions WHERE active=1')->fetchAll();$details=$partner['partner_details']??[];$partnerMatchDetails=$details;
  $matched=null;
  if($classification['category']!=='local'){
@@ -203,11 +215,13 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  if($matched&&strcasecmp((string)$matched['slug'],$homeMember)===0)$matched=null;
  $partnerEmail=$matched?trim((string)($matched['partner_email']??'')):'';if(!filter_var($partnerEmail,FILTER_VALIDATE_EMAIL))$partnerEmail=$matched?alma_partner_contact_email($partner):'';
  $partnerName=$matched?(string)$matched['name']:'';
- if($classification['category']==='ILL')$partnerName='ILL';
- elseif($classification['category']==='P2P')$partnerName=str_contains(alma_item_policy_location_text($item,$loan),'suny')?'SUNY':'P2P';
+ if($classification['category']==='ILL')$partnerName=$itemInstitution!==''?$itemInstitution:'ILL';
+ elseif($classification['category']==='P2P')$partnerName=$itemInstitution!==''?$itemInstitution:(str_contains(alma_item_policy_location_text($item,$loan),'suny')?'SUNY':'P2P');
+ $resourceSharingEmail=resource_sharing_contact_email($partnerName,(string)($classification['category']??''));if($resourceSharingEmail!=='')$partnerEmail=$resourceSharingEmail;
+ $itemInstitutionMatched=false;if($itemInstitution!==''){$q=db()->prepare('SELECT 1 FROM institutions WHERE active=1 AND LOWER(TRIM(name))=LOWER(TRIM(?)) UNION ALL SELECT 1 FROM resource_sharing_contacts WHERE LOWER(TRIM(university))=LOWER(TRIM(?)) LIMIT 1');$q->execute([$itemInstitution,$itemInstitution]);$itemInstitutionMatched=(bool)$q->fetchColumn();}
  $lendingIdentifier=$itemMember!==''?$itemMember:$partnerCode;
- if($classification['category']!==null&&$classification['category']!=='local'&&!$matched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
- return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched];
+ if($classification['category']!==null&&$classification['category']!=='local'&&!$matched&&!$itemInstitutionMatched)$classification['reason'].=' The lending institution could not be matched to an active Partner Library.';
+ return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched||$itemInstitutionMatched];
 }
 function alma_classify_patron_loans(array $patron,string $homeMember,array $loans): array {
  $homeId=trim((string)($patron['primary_id']??''));
