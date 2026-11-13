@@ -45,39 +45,6 @@ $emailStatuses=alma_note_email_statuses($patronNotes,(string)($patron['primary_i
 foreach($patronNotes as $index=>&$note)$note['email_status']=$emailStatuses[$index]??['Internal update — no emails sent'];
 unset($note);
 
-$loans=alma_classify_patron_loans($patron,$member,alma_lookup_patron_network_loans($patron,$member));
-$barcodes=array_values(array_unique(array_filter(array_map(static fn($loan)=>trim((string)($loan['item_barcode']??'')),$loans))));
-$openCasesByBarcode=[];
-if($barcodes){
-    $marks=implode(',',array_fill(0,count($barcodes),'?'));
-    $sql="SELECT id,public_id,item_barcode FROM claims_cases WHERE stage<>'closed' AND item_barcode IN ($marks)";
-    $params=$barcodes;
-    if(!can_manage_all_submissions()){$sql.=' AND institution_id=?';$params[]=tenant_id();}
-    $q=db()->prepare($sql.' ORDER BY created_at DESC');
-    $q->execute($params);
-    foreach($q->fetchAll() as $open)$openCasesByBarcode[(string)$open['item_barcode']][]=['id'=>(int)$open['id'],'public_id'=>(string)$open['public_id']];
-}
-
-$itemLoans=[];
-$institutionNames=[];
-foreach(db()->query('SELECT slug,name FROM institutions')->fetchAll() as $institution)$institutionNames[(string)$institution['slug']]=(string)$institution['name'];
-foreach($loans as $loan){
-    $barcode=(string)($loan['item_barcode']??'');
-    $library=$loan['library']??'';
-    if(is_array($library))$library=$library['desc']??$library['value']??'';
-    $loanMember=(string)($loan['_alma_member']??'');
-    $itemLoans[]=[
-        'title'=>(string)($loan['title']??'Untitled item'),
-        'barcode'=>$barcode,
-        'institution'=>institution_label($institutionNames[$loanMember]??$loanMember),
-        'case_type'=>case_type_label((string)($loan['_claims_case_type']??'')),
-        'call_number'=>(string)($loan['call_number']??''),
-        'due_date'=>(string)($loan['due_date']??''),
-        'library'=>(string)$library,
-        'open_cases'=>$openCasesByBarcode[$barcode]??[],
-    ];
-}
-
 echo json_encode(['ok'=>true,'data'=>[
     'full_name'=>$fullName,
     'primary_id'=>(string)($patron['primary_id']??$case['patron_primary_id']),
@@ -86,5 +53,4 @@ echo json_encode(['ok'=>true,'data'=>[
     'notes'=>$patronNotes,
     'can_delete_patron_notes'=>can_delete_patron_notes(),
     'csrf_token'=>csrf_token(),
-    'checked_out_items'=>$itemLoans,
 ]],JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
