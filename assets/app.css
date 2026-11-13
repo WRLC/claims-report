@@ -40,3 +40,4 @@ h1.has-ui-icon .heading-icon,h2.has-ui-icon .heading-icon,h3.has-ui-icon .headin
 .button.has-ui-icon,button.has-ui-icon,header nav a.has-ui-icon{display:inline-flex;align-items:center;gap:8px}
 .action-icon{width:1.05em;height:1.05em}
 @media(prefers-reduced-motion:reduce){.ui-icon{transition:none}}
+.brand{display:inline-flex;align-items:center;gap:10px}.brand-logo{display:block;width:38px;height:38px;object-fit:contain}.brand span{margin-left:0}
