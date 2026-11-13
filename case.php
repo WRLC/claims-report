@@ -257,7 +257,7 @@ if(!$case&&$selectedItem){
 ob_start(static function(string $output) use ($case,$caseTypeOptions,$createStaffField,$createInstitutionField,$customPatronNoteForm,$partnerFields,$createTypeField,$createPartnerFields): string {
     $output=str_replace('Save Search 0','Save Search 1',$output);
     if(!$case){
-        $output=preg_replace('/<section class="card"><h2>Patron notes<\/h2>(.*?)<\/section>/s','<details class="card patron-notes-accordion"><summary>Patron notes</summary>$1</details>',$output,1);
+        $output=preg_replace('/<section class="card"><h2>Patron notes<\/h2>(.*?)<\/section>/s','<section class="card patron-notes"><h2>Patron notes</h2>$1</section>',$output,1);
         if($createInstitutionField!==''){
             $output=str_replace($createInstitutionField,'',$output);
             $output=str_replace('<div class="form-section"><h2>Patron Information</h2>','<div class="form-section"><h2>Patron Information</h2>'.$createInstitutionField,$output);
@@ -329,7 +329,7 @@ if($case&&can_view_patron_account($case)){
  const render=(data)=>{
   const summary=add("dl","patron-summary-grid",undefined,output);
   [["Full name",data.full_name],["Primary ID",data.primary_id],["Email address",data.email],["Institution",data.institution]].forEach(([label,value])=>{add("dt","",label,summary);add("dd","",value||"—",summary);});
-  const notesSection=add("details","patron-account-section patron-notes-accordion",undefined,output);add("summary","","Patron notes",notesSection);
+  const notesSection=add("section","patron-account-section patron-notes",undefined,output);add("h3","","Patron notes",notesSection);
   if(!data.notes?.length)add("p","muted","No patron notes were returned.",notesSection);
   else{const notes=add("ul","patron-note-list",undefined,notesSection);for(const note of data.notes){const li=add("li","",undefined,notes);li.dataset.patronNote="";const meta=[note.type,displayDate(note.created_date)].filter(value=>value&&value!=="—").join(" · ");if(meta)add("small","",meta,li);add("p","",note.text,li);for(const delivery of note.email_status||[])add("small","note-delivery",delivery,li);if(data.can_delete_patron_notes){const form=add("form","patron-note-delete",undefined,li);form.method="post";form.action="patron-note.php";[["_csrf",data.csrf_token],["case_id",panel.dataset.caseId],["patron_primary_id",data.primary_id],["note_key",note.delete_key]].forEach(([name,value])=>{const input=add("input","",undefined,form);input.type="hidden";input.name=name;input.value=value;});const button=add("button","danger secondary","Delete note",form);button.type="submit";}}}
  };
