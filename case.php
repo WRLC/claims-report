@@ -30,20 +30,20 @@ if($partnerToken!==''){
     $q->execute([hash('sha256',$partnerToken)]);$c=$q->fetch();
     if(!$c){http_response_code(404);exit('Partner link is invalid or expired.');}
     render_start('Partner search');echo '<section class="card"><p class="eyebrow">Partner search · '.h($c['institution_name']).'</p><h1>'.h($c['item_title']).'</h1><p>'.h($c['item_author']??'').' · Barcode '.h($c['item_barcode']??'').'</p><p>Current status: <span class="badge">'.h(str_replace('_',' ',$c['partner_status'])).'</span></p></section>';if($case&&can_edit())echo '<script>
-+(()=> {
-+ const line=document.getElementById("case-item-status");if(!line)return;
-+ const add=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;line.append(node);return node;};
-+ const displayDate=value=>{if(!value)return "date unavailable";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
-+ line.hidden=false;line.classList.add("muted");line.textContent="Checking item status in Alma…";
-+ fetch("case-item-status.php?id='.$id.'",{credentials:"same-origin",headers:{Accept:"application/json"}}).then(async response=>{const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||"Unable to verify item status.");return result.data;}).then(status=>{
-+  line.replaceChildren();line.classList.remove("muted");
-+  if(status.state==="checked_in"){const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
-+  else if(status.state==="checked_out"){const icon=add("span","patron-item-status-icon checked-out","×");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
-+  else{line.classList.add("muted");line.textContent=status.message||"Alma could not confirm the item status.";}
-+ }).catch(error=>{line.classList.add("muted");line.textContent=error.message||"Unable to verify item status.";});
-+})();
-+</script>';
-+render_end();exit;
+(()=> {
+ const line=document.getElementById("case-item-status");if(!line)return;
+ const add=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;line.append(node);return node;};
+ const displayDate=value=>{if(!value)return "date unavailable";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
+ line.hidden=false;line.classList.add("muted");line.textContent="Checking item status in Alma…";
+ fetch("case-item-status.php?id='.$id.'",{credentials:"same-origin",headers:{Accept:"application/json"}}).then(async response=>{const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||"Unable to verify item status.");return result.data;}).then(status=>{
+  line.replaceChildren();line.classList.remove("muted");
+  if(status.state==="checked_in"){const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
+  else if(status.state==="checked_out"){const icon=add("span","patron-item-status-icon checked-out","×");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
+  else{line.classList.add("muted");line.textContent=status.message||"Alma could not confirm the item status.";}
+ }).catch(error=>{line.classList.add("muted");line.textContent=error.message||"Unable to verify item status.";});
+})();
+</script>';
+render_end();exit;
 }
 
 require_login();
