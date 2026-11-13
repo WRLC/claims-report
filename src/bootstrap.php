@@ -62,7 +62,7 @@ function is_case_partner_institution(array $case): bool {
  $partner=strtolower(trim((string)($case['partner_name']??'')));$institution=strtolower(trim((string)(user()['institution_name']??'')));$label=strtolower(trim(institution_label((string)(user()['institution_name']??''))));
  return $partner!==''&&($partner===$institution||$partner===$label);
 }
-function can_view_patron_account(array $case): bool { return can_edit()&&!is_case_partner_institution($case); }
+function can_view_patron_account(array $case): bool { return can_edit(); }
 function flash(string $m,string $k='success'): void { $_SESSION['flash']=[$m,$k]; }
 function take_flash(): ?array { $f=$_SESSION['flash']??null;unset($_SESSION['flash']);return $f; }
 function redirect(string $u='index.php'): never { header('Location: '.$u);exit; }
