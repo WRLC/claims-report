@@ -31,3 +31,5 @@ header nav a.header-nav-button:hover{background:#28536e;border-color:#6b8ca1;col
 header nav a.header-signout,header nav a.header-signout:hover{background:#b42318;border-color:#b42318;color:#fff}
 header nav a.header-signout:hover{background:#8f1d14;border-color:#8f1d14}
 @media(max-width:720px){header{height:auto;min-height:66px;padding:10px 16px;gap:10px;flex-wrap:wrap}header nav{gap:6px;flex-wrap:wrap;justify-content:flex-end}header nav a.header-nav-button{padding:6px 8px;font-size:11px}}
+.login .login-about{margin:26px 0 0;text-align:center}
+.login .login-about a{color:#155f7d;text-decoration:underline;text-underline-offset:3px}
