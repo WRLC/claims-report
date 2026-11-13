@@ -4,7 +4,9 @@ require_login();
 $adminMode=can_manage_accounts();
 $localManager=is_super_user()&&!$adminMode;
 $localCreator=$localManager;
-if(!$adminMode&&!$localManager){http_response_code(403);exit('Access denied.');}
+$canManageContacts=$adminMode||$localManager;
+$canViewContacts=logged_in();
+if(!$canViewContacts){http_response_code(403);exit('Access denied.');}
 
 function admin_role_label(string $role): string {
     return match($role){'super_user'=>'Super user','admin'=>'Admin','staff','viewer'=>'User',default=>'User'};
@@ -55,14 +57,15 @@ if($adminMode){
 $create=['institution_id'=>tenant_id(),'identifier'=>'','display_name'=>'','email'=>'','role'=>'user'];
 $edit=null;$error='';$message='';$screen=(string)($_GET['add']??'');$lookupLoaded=false;
 $section=(string)($_GET['section']??'accounts');if(!in_array($section,['accounts','resource-sharing'],true))$section='accounts';
-if($section==='resource-sharing'&&!$adminMode){http_response_code(403);exit('Access denied.');}
+if($section==='accounts'&&!($adminMode||$localManager)){http_response_code(403);exit('Access denied.');}
 $contactFields=['university'=>'','cls_contact'=>'','cls_email'=>'','cls_phone'=>'','p2p_email'=>'','p2p_phone'=>'','ill_email'=>'','ill_phone'=>''];
 $contactEditId=(int)($_GET['contact_edit']??0);$contactEdit=null;$contactUniversityOptions=array_column($institutions,'name');
-if($adminMode&&$section==='resource-sharing'){$contactUniversityOptions[]='Trinity Washington University';$savedUniversities=db()->query('SELECT DISTINCT university FROM resource_sharing_contacts ORDER BY university')->fetchAll(PDO::FETCH_COLUMN);$contactUniversityOptions=array_values(array_unique(array_merge($contactUniversityOptions,$savedUniversities)));sort($contactUniversityOptions,SORT_NATURAL|SORT_FLAG_CASE);}
+if($canManageContacts&&$section==='resource-sharing'){$extraUniversities=$adminMode?array_merge(['Trinity Washington University'],db()->query('SELECT DISTINCT university FROM resource_sharing_contacts ORDER BY university')->fetchAll(PDO::FETCH_COLUMN)):[];$contactUniversityOptions=array_values(array_unique(array_merge($contactUniversityOptions,$extraUniversities)));sort($contactUniversityOptions,SORT_NATURAL|SORT_FLAG_CASE);}
 
 if($_SERVER['REQUEST_METHOD']==='POST'){
     csrf_check();$action=(string)($_POST['action']??'');
-    if(in_array($action,['save_resource_contact','delete_resource_contact','import_resource_contacts'],true)&&!$adminMode){http_response_code(403);exit('Access denied.');}
+    if(in_array($action,['save_resource_contact','delete_resource_contact'],true)&&!$canManageContacts){http_response_code(403);exit('Access denied.');}
+    if($action==='import_resource_contacts'&&!$adminMode){http_response_code(403);exit('Access denied.');}
     if($action==='import_resource_contacts'){
         $section='resource-sharing';$upload=$_FILES['contacts_csv']??null;
         if(!$upload||($upload['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK)$error='Choose a CSV file exported from the Resource Sharing Contact List spreadsheet.';
@@ -89,9 +92,10 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         }
     }elseif($action==='save_resource_contact'){
         $section='resource-sharing';$contactEditId=(int)($_POST['contact_id']??0);
+        if($localManager&&$contactEditId){$scope=db()->prepare('SELECT id FROM resource_sharing_contacts WHERE id=? AND LOWER(TRIM(university))=LOWER(TRIM(?))');$scope->execute([$contactEditId,(string)user()['institution_name']]);if(!$scope->fetchColumn()){http_response_code(403);exit('You can only manage contacts for your institution.');}}
         foreach($contactFields as $field=>$unused)$contactFields[$field]=trim((string)($_POST[$field]??''));
         $emails=['cls_email','p2p_email','ill_email'];
-        $university=admin_contact_university($contactFields['university'],$institutions,$contactUniversityOptions);if(!$university)$error='Choose a university from the controlled list.';else $contactFields['university']=$university;
+        $university=admin_contact_university($contactFields['university'],$institutions,$contactUniversityOptions);if(!$university)$error='Choose a university from the controlled list.';elseif($localManager&&strcasecmp(trim($university),trim((string)user()['institution_name']))!==0)$error='You can only manage contacts for your institution.';else $contactFields['university']=$university;
         if($error===''&&(mb_strlen($contactFields['cls_contact'])>160||strlen($contactFields['cls_email'])>254||strlen($contactFields['p2p_email'])>254||strlen($contactFields['ill_email'])>254||mb_strlen($contactFields['cls_phone'])>80||mb_strlen($contactFields['p2p_phone'])>80||mb_strlen($contactFields['ill_phone'])>80))$error='One or more contact fields exceed the maximum length.';
         if($error==='')foreach($emails as $field)if($contactFields[$field]!==''&&!filter_var($contactFields[$field],FILTER_VALIDATE_EMAIL)){$error='Enter a valid email address or leave the email field blank.';break;}
         if($error===''){
@@ -101,7 +105,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
             flash($contactEditId?'Resource Sharing contact updated.':'Resource Sharing contact added.');redirect('admin.php?section=resource-sharing');
         }
     }elseif($action==='delete_resource_contact'){
-        $q=db()->prepare('DELETE FROM resource_sharing_contacts WHERE id=?');$q->execute([(int)($_POST['contact_id']??0)]);flash('Resource Sharing contact deleted.');redirect('admin.php?section=resource-sharing');
+        $q=$localManager?db()->prepare('DELETE FROM resource_sharing_contacts WHERE id=? AND LOWER(TRIM(university))=LOWER(TRIM(?))'):db()->prepare('DELETE FROM resource_sharing_contacts WHERE id=?');$localManager?$q->execute([(int)($_POST['contact_id']??0),(string)user()['institution_name']]):$q->execute([(int)($_POST['contact_id']??0)]);if(!$q->rowCount()){http_response_code(403);exit('You can only manage contacts for your institution.');}flash('Resource Sharing contact deleted.');redirect('admin.php?section=resource-sharing');
     }elseif($action==='lookup'){
         $screen='alma';$create['identifier']=trim((string)($_POST['identifier']??''));
         if($create['identifier']==='')$error='Enter an Alma user ID.';
@@ -182,8 +186,8 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 $editId=(int)($_GET['edit']??0);
 if(($adminMode||$localManager)&&$editId){$editSql='SELECT u.id,u.institution_id,u.email,u.display_name,u.role,u.active,u.last_login_at,i.name institution_name FROM users u JOIN institutions i ON i.id=u.institution_id WHERE u.id=?';if($localManager)$editSql.=' AND u.institution_id=? AND u.role<>\'admin\'';$q=db()->prepare($editSql);$q->execute($localManager?[$editId,tenant_id()]:[$editId]);$edit=$q->fetch()?:null;if(!$edit){http_response_code(404);exit('Account not found.');}}
 $contacts=[];$contactEdit=null;
-if($adminMode&&$section==='resource-sharing'){
-    if($contactEditId){$q=db()->prepare('SELECT * FROM resource_sharing_contacts WHERE id=?');$q->execute([$contactEditId]);$contactEdit=$q->fetch()?:null;if(!$contactEdit&&$_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(404);exit('Contact not found.');}if($contactEdit&&$_SERVER['REQUEST_METHOD']!=='POST')$contactFields=array_merge($contactFields,$contactEdit);}
+if($section==='resource-sharing'){
+    if($contactEditId){$q=$localManager?db()->prepare('SELECT * FROM resource_sharing_contacts WHERE id=? AND LOWER(TRIM(university))=LOWER(TRIM(?))'):db()->prepare('SELECT * FROM resource_sharing_contacts WHERE id=?');$localManager?$q->execute([$contactEditId,(string)user()['institution_name']]):$q->execute([$contactEditId]);$contactEdit=$q->fetch()?:null;if(!$contactEdit&&$_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(404);exit('Contact not found or outside your institution.');}if($contactEdit&&$_SERVER['REQUEST_METHOD']!=='POST')$contactFields=array_merge($contactFields,$contactEdit);}
     $contacts=db()->query('SELECT * FROM resource_sharing_contacts ORDER BY university,id')->fetchAll();
 }
 $accounts=[];$search='';$filterInstitution=0;$filterRole='';
@@ -198,8 +202,8 @@ if($adminMode||$localManager){
     $sql.=' ORDER BY i.name,u.display_name LIMIT 200';$q=db()->prepare($sql);$q->execute($params);$accounts=$q->fetchAll();
 }
 
-render_start($adminMode&&$section==='resource-sharing'?'Admin · Resource Sharing Contact List':($adminMode?'Admin · User accounts':'Institution accounts'));
-echo '<div class="page-title"><div><p class="eyebrow">Administration</p><h1>'.($section==='resource-sharing'?'Resource Sharing Contact List':($adminMode?'User accounts':'Institution accounts')).'</h1><p class="muted">'.($section==='resource-sharing'?'Manage CLS, P2P, and ILL partner contacts.':' '.($adminMode?'Create accounts, manage access, and reset passwords.':'Manage accounts for '.h(institution_label((string)user()['institution_name'])).'.')).'</p></div>';
+render_start($section==='resource-sharing'?'Resource Sharing Contact List':($adminMode?'Admin · User accounts':'Institution accounts'));
+echo '<div class="page-title"><div><p class="eyebrow">Administration</p><h1>'.($section==='resource-sharing'?'Resource Sharing Contact List':($adminMode?'User accounts':'Institution accounts')).'</h1><p class="muted">'.($section==='resource-sharing'?($canManageContacts?'Manage CLS, P2P, and ILL partner contacts.'.($localManager?' You can manage contacts for '.h(institution_label((string)user()['institution_name'])).'.':''):'View CLS, P2P, and ILL partner contacts.'):' '.($adminMode?'Create accounts, manage access, and reset passwords.':'Manage accounts for '.h(institution_label((string)user()['institution_name'])).'.')).'</p></div>';
 if(!$edit&&$screen===''&&$section==='accounts')echo '<a class="button" href="admin.php?add=choose" style="color:#fff !important">Add account</a>';
 echo '</div>';
 if($adminMode)echo '<nav class="admin-sections"><a href="admin.php"'.($section==='accounts'?' aria-current="page"':'').'>User accounts</a><a href="admin.php?section=resource-sharing"'.($section==='resource-sharing'?' aria-current="page"':'').'>Resource Sharing Contact List</a></nav>';
@@ -224,16 +228,19 @@ foreach($accounts as $account)echo '<tr><td>'.h($account['display_name']).'</td>
 if(!$accounts)echo '<tr><td colspan="7" class="empty">No accounts found.</td></tr>';
 echo '</tbody></table></div><small>Showing up to 200 accounts.</small></section>';
 }
-if($adminMode&&$section==='resource-sharing'){
+if($section==='resource-sharing'){
+    if($canManageContacts){
     $contactFormId=(int)($contactEdit['id']??$contactEditId);$contactHeading=$contactFormId?'Edit contact':'Add contact';
     echo '<details class="card contact-manager"'.(($contactFormId||$error!=='')?' open':'').'><summary>'.h($contactHeading).'</summary>';
     if(!$contactFormId||$contactEdit||$error!==''){
         echo '<form method="post" class="form-grid"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="save_resource_contact"><input type="hidden" name="contact_id" value="'.$contactFormId.'"><label>University<select name="university" required><option value="">Select a university</option>';foreach($contactUniversityOptions as $universityName)echo '<option value="'.h($universityName).'"'.(strcasecmp((string)$contactFields['university'],(string)$universityName)===0?' selected':'').'>'.h(institution_label((string)$universityName)).'</option>';echo '</select></label><div class="two"><label>CLS contact<input name="cls_contact" value="'.h($contactFields['cls_contact']).'" maxlength="160"></label><label>CLS email<input type="email" name="cls_email" value="'.h($contactFields['cls_email']).'" maxlength="254"></label><label>CLS phone<input name="cls_phone" value="'.h($contactFields['cls_phone']).'" maxlength="80"></label></div><div class="two"><label>P2P email<input type="email" name="p2p_email" value="'.h($contactFields['p2p_email']).'" maxlength="254"></label><label>P2P phone<input name="p2p_phone" value="'.h($contactFields['p2p_phone']).'" maxlength="80"></label><label>ILL email<input type="email" name="ill_email" value="'.h($contactFields['ill_email']).'" maxlength="254"></label><label>ILL phone<input name="ill_phone" value="'.h($contactFields['ill_phone']).'" maxlength="80"></label></div><button>Save contact</button>'.($contactFormId?'<a href="admin.php?section=resource-sharing">Cancel</a>':'').'</form>';
     }
-    echo '<form method="post" enctype="multipart/form-data" class="csv-import-form"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="import_resource_contacts"><label>Import Google Sheets CSV<input type="file" name="contacts_csv" accept=".csv,text/csv" required></label><button class="secondary">Import CSV</button><small>Export the contact sheet as CSV. Required headers: university, cls_contact, cls_email, cls_phone, p2p_email, p2p_phone, ill_email, ill_phone.</small></form></details>';
-    echo '<section class="card"><h2>Contacts by university</h2><p class="muted">University choices use the active institution list. Each email is used for the matching case type; staff can change the case email.</p><div class="table-wrap"><table class="resource-sharing-table"><thead><tr><th>University</th><th>CLS contact / email / phone</th><th>P2P email / phone</th><th>ILL email / phone</th><th>Actions</th></tr></thead><tbody>';
-    foreach($contacts as $contact){$cls=trim((string)($contact['cls_contact']??''));if($contact['cls_email'])$cls.=($cls?' · ':'').$contact['cls_email'];if($contact['cls_phone'])$cls.=($cls?' · ':'').$contact['cls_phone'];$p2p=trim((string)($contact['p2p_email']??''));if($contact['p2p_phone'])$p2p.=($p2p?' · ':'').$contact['p2p_phone'];$ill=trim((string)($contact['ill_email']??''));if($contact['ill_phone'])$ill.=($ill?' · ':'').$contact['ill_phone'];echo '<tr><td>'.h($contact['university']).'</td><td>'.h($cls?:'—').'</td><td>'.h($p2p?:'—').'</td><td>'.h($ill?:'—').'</td><td><div class="account-actions"><a class="button account-edit-button" href="admin.php?section=resource-sharing&amp;contact_edit='.(int)$contact['id'].'">Edit</a><form method="post" onsubmit="return confirm(\'Delete this Resource Sharing contact?\')"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="delete_resource_contact"><input type="hidden" name="contact_id" value="'.(int)$contact['id'].'"><button class="danger secondary" type="submit">Delete</button></form></div></td></tr>';}
-    if(!$contacts)echo '<tr><td colspan="5" class="empty">No contacts have been added.</td></tr>';
+    if($adminMode)echo '<form method="post" enctype="multipart/form-data" class="csv-import-form"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="import_resource_contacts"><label>Import Google Sheets CSV<input type="file" name="contacts_csv" accept=".csv,text/csv" required></label><button class="secondary">Import CSV</button><small>Export the contact sheet as CSV. Required headers: university, cls_contact, cls_email, cls_phone, p2p_email, p2p_phone, ill_email, ill_phone.</small></form>';
+    echo '</details>';
+    }
+    echo '<section class="card"><h2>Contacts by university</h2><p class="muted">University choices use the active institution list. Each email is used for the matching case type; staff can change the case email.</p><div class="table-wrap"><table class="resource-sharing-table"><thead><tr><th>University</th><th>CLS contact / email / phone</th><th>P2P email / phone</th><th>ILL email / phone</th>'.($canManageContacts?'<th>Actions</th>':'').'</tr></thead><tbody>';
+    foreach($contacts as $contact){$cls=trim((string)($contact['cls_contact']??''));if($contact['cls_email'])$cls.=($cls?' · ':'').$contact['cls_email'];if($contact['cls_phone'])$cls.=($cls?' · ':'').$contact['cls_phone'];$p2p=trim((string)($contact['p2p_email']??''));if($contact['p2p_phone'])$p2p.=($p2p?' · ':'').$contact['p2p_phone'];$ill=trim((string)($contact['ill_email']??''));if($contact['ill_phone'])$ill.=($ill?' · ':'').$contact['ill_phone'];$canManageRow=$adminMode||($localManager&&strcasecmp(trim((string)$contact['university']),trim((string)user()['institution_name']))===0);echo '<tr><td>'.h($contact['university']).'</td><td>'.h($cls?:'—').'</td><td>'.h($p2p?:'—').'</td><td>'.h($ill?:'—').'</td>';if($canManageContacts)echo '<td>'.($canManageRow?'<div class="account-actions"><a class="button account-edit-button" href="admin.php?section=resource-sharing&amp;contact_edit='.(int)$contact['id'].'">Edit</a><form method="post" onsubmit="return confirm(\'Delete this Resource Sharing contact?\')"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><input type="hidden" name="action" value="delete_resource_contact"><input type="hidden" name="contact_id" value="'.(int)$contact['id'].'"><button class="danger secondary" type="submit">Delete</button></form></div>':'—').'</td>';echo '</tr>';}
+    if(!$contacts)echo '<tr><td colspan="'.($canManageContacts?'5':'4').'" class="empty">No contacts have been added.</td></tr>';
     echo '</tbody></table></div></section>';
 }
 render_end();
