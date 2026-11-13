@@ -29,7 +29,21 @@ if($partnerToken!==''){
     $q=db()->prepare("SELECT c.*,i.name institution_name,i.slug institution_slug FROM claims_cases c JOIN institutions i ON i.id=c.institution_id WHERE c.partner_token_hash=? AND c.stage<>'closed' AND (c.partner_token_expires_at IS NULL OR c.partner_token_expires_at>UTC_TIMESTAMP()) LIMIT 1");
     $q->execute([hash('sha256',$partnerToken)]);$c=$q->fetch();
     if(!$c){http_response_code(404);exit('Partner link is invalid or expired.');}
-    render_start('Partner search');echo '<section class="card"><p class="eyebrow">Partner search · '.h($c['institution_name']).'</p><h1>'.h($c['item_title']).'</h1><p>'.h($c['item_author']??'').' · Barcode '.h($c['item_barcode']??'').'</p><p>Current status: <span class="badge">'.h(str_replace('_',' ',$c['partner_status'])).'</span></p></section>';render_end();exit;
+    render_start('Partner search');echo '<section class="card"><p class="eyebrow">Partner search · '.h($c['institution_name']).'</p><h1>'.h($c['item_title']).'</h1><p>'.h($c['item_author']??'').' · Barcode '.h($c['item_barcode']??'').'</p><p>Current status: <span class="badge">'.h(str_replace('_',' ',$c['partner_status'])).'</span></p></section>';if($case&&can_edit())echo '<script>
++(()=> {
++ const line=document.getElementById("case-item-status");if(!line)return;
++ const add=(tag,cls,text)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;line.append(node);return node;};
++ const displayDate=value=>{if(!value)return "date unavailable";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
++ line.hidden=false;line.classList.add("muted");line.textContent="Checking item status in Alma…";
++ fetch("case-item-status.php?id='.$id.'",{credentials:"same-origin",headers:{Accept:"application/json"}}).then(async response=>{const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||"Unable to verify item status.");return result.data;}).then(status=>{
++  line.replaceChildren();line.classList.remove("muted");
++  if(status.state==="checked_in"){const icon=add("span","patron-item-status-icon checked-in","✓");icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+displayDate(status.checkin_date));}
++  else if(status.state==="checked_out"){const icon=add("span","patron-item-status-icon checked-out","×");icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+displayDate(status.due_date));}
++  else{line.classList.add("muted");line.textContent=status.message||"Alma could not confirm the item status.";}
++ }).catch(error=>{line.classList.add("muted");line.textContent=error.message||"Unable to verify item status.";});
++})();
++</script>';
++render_end();exit;
 }
 
 require_login();
@@ -328,8 +342,6 @@ if($case&&can_view_patron_account($case)){
  const render=(data)=>{
   const summary=add("dl","patron-summary-grid",undefined,output);
   [["Full name",data.full_name],["Primary ID",data.primary_id],["Email address",data.email],["Institution",data.institution]].forEach(([label,value])=>{add("dt","",label,summary);add("dd","",value||"—",summary);});
-  const itemStatus=data.case_item_status||{};const statusLine=document.getElementById("case-item-status");
-  if(statusLine){statusLine.replaceChildren();statusLine.classList.remove("muted");if(itemStatus.state==="checked_in"){const icon=add("span","patron-item-status-icon checked-in","✓",statusLine);icon.setAttribute("aria-hidden","true");add("span","","Checked in · "+(itemStatus.checkin_date?displayDate(itemStatus.checkin_date):"check-in date unavailable"),statusLine);statusLine.hidden=false;}else if(itemStatus.state==="checked_out"){const icon=add("span","patron-item-status-icon checked-out","×",statusLine);icon.setAttribute("aria-hidden","true");add("span","","Checked out to the patron’s account · Due "+(itemStatus.due_date?displayDate(itemStatus.due_date):"date unavailable"),statusLine);statusLine.hidden=false;}else{statusLine.classList.add("muted");statusLine.textContent=itemStatus.message||"Alma could not confirm the item status.";statusLine.hidden=false;}}
   const notesSection=add("section","patron-account-section patron-notes",undefined,output);add("h3","","Patron notes",notesSection);
   if(!data.notes?.length)add("p","muted","No patron notes were returned.",notesSection);
   else{const notes=add("ul","patron-note-list",undefined,notesSection);for(const note of data.notes){const li=add("li","",undefined,notes);li.dataset.patronNote="";const meta=[note.type,displayDate(note.created_date)].filter(value=>value&&value!=="—").join(" · ");if(meta)add("small","",meta,li);add("p","",note.text,li);for(const delivery of note.email_status||[])add("small","note-delivery",delivery,li);if(data.can_delete_patron_notes){const form=add("form","patron-note-delete",undefined,li);form.method="post";form.action="patron-note.php";[["_csrf",data.csrf_token],["case_id",panel.dataset.caseId],["patron_primary_id",data.primary_id],["note_key",note.delete_key]].forEach(([name,value])=>{const input=add("input","",undefined,form);input.type="hidden";input.name=name;input.value=value;});const button=add("button","danger secondary","Delete note",form);button.type="submit";}}}
