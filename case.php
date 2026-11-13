@@ -65,7 +65,7 @@ function alma_user_notes(array $patron,string $patronId): array {
 }
 function populate_item(string $barcode,string $patronMember='',string $loanPrimaryId='',string $loanMember='',array $loanSuggestion=[]): array {
     $r=alma_lookup_item($patronMember?:user()['institution_slug'],$barcode);if(!$r['ok'])return [null,$r['error']];
-    $i=$r['data']['item']??$r['data'];$i['_alma_member']=(string)($r['data']['_alma_member']??'');$d=$i['item_data']??[];$b=$i['bib_data']??[];
+    $i=$r['data']['item']??$r['data'];if(is_array($i)&&array_is_list($i))$i=$i[0]??[];if(!is_array($i))$i=[];$i['_alma_member']=(string)($r['data']['_alma_member']??'');$d=$i['item_data']??[];$b=$i['bib_data']??[];
     $_POST['item_title']=$b['title']??$d['title']??'';$_POST['item_author']=$b['author']??'';$_POST['item_mms_id']=$b['mms_id']??'';$_POST['item_barcode']=$d['barcode']??$barcode;
     $loanMember=$loanMember?:$patronMember;$loanPrimaryId=$loanPrimaryId?:trim((string)($_POST['patron_primary_id']??''));
     $loan=alma_lookup_loan((string)($_POST['patron_primary_id']??''),$_POST['item_barcode'],$patronMember,$loanMember,$loanPrimaryId);
@@ -74,7 +74,7 @@ function populate_item(string $barcode,string $patronMember='',string $loanPrima
     $suggestedType=(string)($loanSuggestion['category']??'');$suggestedStatus=(string)($loanSuggestion['status']??'');$validTypes=['local','CLS','P2P','ILL'];
     if((!$classification||$classification['status']!=='confirmed')&&$suggestedStatus==='confirmed'&&in_array($suggestedType,$validTypes,true))$classification=['category'=>$suggestedType,'status'=>'confirmed','reason'=>'Using the classification already confirmed for this checked-out loan.','partner_name'=>trim((string)($loanSuggestion['partner_name']??'')),'partner_email'=>trim((string)($loanSuggestion['partner_email']??'')),'partner_matched'=>false,'lending_identifier'=>''];
     elseif($classification&&$classification['status']==='confirmed'&&trim((string)($classification['partner_name']??''))===''&&in_array($suggestedType,$validTypes,true)&&$suggestedType===$classification['category'])$classification['partner_name']=trim((string)($loanSuggestion['partner_name']??''));
-    if($classification){$_POST['loan_type']=$classification['category']??'';$_POST['partner_name']=(string)($classification['partner_name']??'');$contactEmail=resource_sharing_contact_email($_POST['partner_name'],(string)($classification['category']??''));$classificationEmail=trim((string)($classification['partner_email']??''));$suggestedEmail=trim((string)($loanSuggestion['partner_email']??''));$_POST['partner_email']=$contactEmail!==''?$contactEmail:($classificationEmail!==''?$classificationEmail:$suggestedEmail);}
+    if($classification){$_POST['loan_type']=$classification['category']??'';$_POST['partner_name']=(string)($classification['partner_name']??'');$itemInstitution=alma_item_partner_university($i,$loan??[]);if($itemInstitution!==''&&in_array(strtoupper((string)($_POST['loan_type']??'')),['P2P','ILL'],true))$_POST['partner_name']=$itemInstitution;$contactEmail=resource_sharing_contact_email($_POST['partner_name'],(string)($classification['category']??''));$classificationEmail=trim((string)($classification['partner_email']??''));$suggestedEmail=trim((string)($loanSuggestion['partner_email']??''));$_POST['partner_email']=$contactEmail!==''?$contactEmail:($classificationEmail!==''?$classificationEmail:$suggestedEmail);}
     else{$_POST['loan_type']='';$_POST['partner_name']='';$_POST['partner_email']='';}
     return [$i,'',$classification];
 }
