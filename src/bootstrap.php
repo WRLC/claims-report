@@ -89,8 +89,9 @@ function alma_item_checkin_status(array $case): array {
  $lookup=alma_lookup_item((string)$case['institution_slug'],$barcode);if(!$lookup['ok'])return ['ok'=>false,'state'=>'unknown','label'=>'Unable to verify','message'=>'Alma item lookup failed: '.($lookup['error']??'unknown API error')];
  $item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];$data=is_array($item)?($item['item_data']??$item):[];
  $value=static function(mixed $field): string { if(is_array($field))return trim((string)($field['desc']??$field['value']??''));return trim((string)$field); };
- $base=$value($data['base_status']??'');$process=$value($data['process_type']??'');$normalized=strtolower($base);$processNormalized=strtolower($process);
+ $base=$value($data['base_status']??'');$process=$value($data['process_type']??'');$normalized=strtolower($base);$processNormalized=strtolower($process);$statusText=strtolower(str_replace(['_','-'], ' ', $base.' '.$process));
  $checkinDate='';foreach(['last_return_date','last_return_date_time','last_returned_date','last_checkin_date','last_checkin_date_time','last_check_in_date','checkin_date'] as $dateKey){$checkinDate=$value($data[$dateKey]??'');if($checkinDate!=='')break;}
+ if(preg_match('/\\b(missing|lost)\\b/',$statusText))return ['ok'=>true,'state'=>'missing','label'=>'Reported missing','message'=>'Alma reports the item as missing.','base_status'=>$base,'process_type'=>$process,'checkin_date'=>'','member'=>$lookup['data']['_alma_member']??''];
  if(str_contains($processNormalized,'loan'))return ['ok'=>true,'state'=>'checked_out','label'=>'Still checked out','message'=>'Alma reports the item is still on loan.','base_status'=>$base,'process_type'=>$process,'checkin_date'=>'','member'=>$lookup['data']['_alma_member']??''];
  if(in_array(strtolower($base),['1','in place','item in place'],true))return ['ok'=>true,'state'=>'checked_in','label'=>'Checked in','message'=>'Alma reports the item is in place.','base_status'=>$base,'process_type'=>$process,'checkin_date'=>$checkinDate,'member'=>$lookup['data']['_alma_member']??''];
  if($base!==''||$process!=='')return ['ok'=>true,'state'=>'not_confirmed','label'=>'Not confirmed checked in','message'=>'Alma reports a status other than “Item in place”.','base_status'=>$base,'process_type'=>$process,'member'=>$lookup['data']['_alma_member']??''];
@@ -149,6 +150,7 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember,strin
 }
 function alma_case_patron_item_status(array $case,array $patron,string $member): array {
  $status=alma_item_checkin_status($case);$barcode=strtolower(trim((string)($case['item_barcode']??'')));
+ if(($status['state']??'')==='missing')return ['state'=>'missing','checkin_date'=>'','due_date'=>'','message'=>'Alma reports the item as missing.'];
  if(($status['state']??'')==='checked_in'){
   $checkinDate=(string)($status['checkin_date']??'');
   if($checkinDate===''&&$barcode!=='')foreach(alma_lookup_patron_network_loans($patron,$member,'Complete',100) as $loan){$loanBarcode=strtolower(trim((string)($loan['item_barcode']??$loan['barcode']??'')));if($loanBarcode!==''&&$loanBarcode===$barcode){$checkinDate=(string)($loan['return_date']??'');break;}}
