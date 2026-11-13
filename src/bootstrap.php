@@ -152,9 +152,18 @@ function alma_item_case_type(array $item,array $loan=[]): ?string {
  if(preg_match('/suny|(?:^|[^a-z0-9])p2p(?:$|[^a-z0-9])/i',$text))return 'P2P';
  return null;
 }
+function alma_find_item_institution(mixed $record): string {
+ if(!is_array($record))return '';
+ foreach($record as $key=>$value)if(is_string($key)&&in_array(strtolower($key),['institution','institution_name','institution_code'],true)){
+  if(is_array($value)){foreach(['name','desc','description','value','code'] as $part)if(isset($value[$part])&&!is_array($value[$part])&&trim((string)$value[$part])!=='')return trim((string)$value[$part]);}
+  elseif(trim((string)$value)!=='')return trim((string)$value);
+ }
+ foreach($record as $value)if(is_array($value)){$found=alma_find_item_institution($value);if($found!=='')return $found;}
+ return '';
+}
 function alma_item_partner_university(array $item,array $loan=[]): string {
- $records=[];foreach([$item['item_data']??null,$item,$loan['item_data']??null,$loan] as $record)if(is_array($record))$records[]=$record;
- $value='';foreach($records as $record){$raw=alma_case_item_field($record,['institution','institution_name','institution_code']);if($raw===null)continue;$candidate='';if(is_array($raw)){foreach(['name','desc','description','value','code'] as $key)if(isset($raw[$key])&&trim((string)$raw[$key])!==''){$candidate=trim((string)$raw[$key]);break;}}else $candidate=trim((string)$raw);if($candidate!==''){$value=$candidate;break;}}
+ $records=[$item['item_data']??null,$item,$loan['item_data']??null,$loan];
+ $value='';foreach($records as $record){$candidate=alma_find_item_institution($record);if($candidate!==''){$value=$candidate;break;}}
  if($value==='')return '';
  $q=db()->prepare('SELECT name FROM institutions WHERE active=1 AND (LOWER(TRIM(name))=LOWER(TRIM(?)) OR LOWER(TRIM(slug))=LOWER(TRIM(?)) OR LOWER(TRIM(alma_code))=LOWER(TRIM(?))) LIMIT 1');$q->execute([$value,$value,$value]);$name=$q->fetchColumn();if($name)return (string)$name;
  $labels=['au'=>'American University','cua'=>'Catholic University of America','gallaudet'=>'Gallaudet University','gmu'=>'George Mason University','georgetown'=>'Georgetown University','gw'=>'George Washington University','howard'=>'Howard University','marymount'=>'Marymount University','trinitydc'=>'Trinity Washington University','udc'=>'University of the District of Columbia'];$aliases=['AU'=>'au','AU LAW'=>'au','CU'=>'cua','CU LAW'=>'cua','GA'=>'gallaudet','GM'=>'gmu','GT'=>'georgetown','GT LAW'=>'georgetown','GW'=>'gw','GW HIM'=>'gw','GW LAW'=>'gw','HU'=>'howard','HU LOUIS'=>'howard','HU LAW'=>'howard','MU'=>'marymount','TU'=>'trinitydc','UDC'=>'udc','UDC LAW'=>'udc'];$slug=$aliases[strtoupper($value)]??'';
@@ -229,7 +238,10 @@ function alma_classify_patron_loans(array $patron,string $homeMember,array $loan
   if(!is_array($loan))continue;
   $loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);
   $item=['_alma_member'=>$loanMember];
-  if(alma_item_case_type($loan,$loan)===null&&trim((string)($loan['item_barcode']??''))!==''){$lookup=alma_lookup_item($loanMember?:$homeMember,(string)$loan['item_barcode']);if($lookup['ok']&&is_array($lookup['data'])){$item=$lookup['data']['item']??$lookup['data'];if(!is_array($item))$item=[];$item['_alma_member']=$lookup['data']['_alma_member']??$loanMember;}}
+  // Always inspect the full item record: Policy/Location may already identify
+  // P2P or ILL on the loan, but institution is needed to select the right
+  // university contact instead of the generic SUNY/ILL fallback.
+  if(trim((string)($loan['item_barcode']??''))!==''){$lookup=alma_lookup_item($loanMember?:$homeMember,(string)$loan['item_barcode']);if($lookup['ok']&&is_array($lookup['data'])){$item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];if(!is_array($item))$item=[];$item['_alma_member']=$lookup['data']['_alma_member']??$loanMember;}}
   $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId);
   $category=$classification['category'];
   if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
