@@ -45,12 +45,28 @@ $emailStatuses=alma_note_email_statuses($patronNotes,(string)($patron['primary_i
 foreach($patronNotes as $index=>&$note)$note['email_status']=$emailStatuses[$index]??['Internal update — no emails sent'];
 unset($note);
 
+$caseItemStatus=['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma could not confirm the item status.'];
+$liveItemStatus=alma_item_checkin_status($case);
+if(($liveItemStatus['state']??'')==='checked_in'){
+    $caseItemStatus=['state'=>'checked_in','checkin_date'=>(string)($liveItemStatus['checkin_date']??''),'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
+}elseif(($liveItemStatus['state']??'')==='checked_out'){
+    $barcode=strtolower(trim((string)$case['item_barcode']));
+    foreach(alma_lookup_patron_network_loans($patron,$member) as $activeLoan){
+        $loanBarcode=strtolower(trim((string)($activeLoan['item_barcode']??$activeLoan['barcode']??'')));
+        if($loanBarcode===''||$loanBarcode!==$barcode)continue;
+        $caseItemStatus=['state'=>'checked_out','checkin_date'=>'','due_date'=>(string)($activeLoan['due_date']??''),'message'=>'Alma shows this item on the patron’s active account.'];
+        break;
+    }
+    if($caseItemStatus['state']!=='checked_out')$caseItemStatus=['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma reports that the item is on loan but does not show it on this patron’s active account.'];
+}
+
 echo json_encode(['ok'=>true,'data'=>[
     'full_name'=>$fullName,
     'primary_id'=>(string)($patron['primary_id']??$case['patron_primary_id']),
     'email'=>$email,
     'institution'=>institution_label($institutionName),
     'notes'=>$patronNotes,
+    'case_item_status'=>$caseItemStatus,
     'can_delete_patron_notes'=>can_delete_patron_notes(),
     'csrf_token'=>csrf_token(),
 ]],JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
