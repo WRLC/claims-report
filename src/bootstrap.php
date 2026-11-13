@@ -128,11 +128,12 @@ function alma_lookup_linked_accounts(array $patron,string $homeMember): array {
  }
  return $accounts;
 }
-function alma_lookup_account_loans(string $patronId,string $member): array {
+function alma_lookup_account_loans(string $patronId,string $member,string $loanStatus='Active',int $maxRows=1000): array {
  if($patronId===''||$member==='')return [];
+ $loanStatus=in_array(strtolower($loanStatus),['active','complete'],true)?ucfirst(strtolower($loanStatus)):'Active';$maxRows=max(1,min(1000,$maxRows));
  $out=[];$total=null;
- for($offset=0;$offset<1000;$offset+=100){
-  $r=alma_request($member,'/users/'.rawurlencode($patronId).'/loans?user_id_type=all_unique&limit=100&offset='.$offset.'&order_by=id&direction=ASC&loan_status=Active');
+ for($offset=0;$offset<$maxRows;$offset+=100){
+  $r=alma_request($member,'/users/'.rawurlencode($patronId).'/loans?user_id_type=all_unique&limit=100&offset='.$offset.'&order_by=id&direction='.($loanStatus==='Complete'?'DESC':'ASC').'&loan_status='.$loanStatus);
   if(!$r['ok']||!is_array($r['data']))break;
   $loans=$r['data']['item_loan']??[];if(isset($loans['loan_id']))$loans=[$loans];$page=(array)$loans;
   foreach($page as $loan)if(is_array($loan)){$loan['_alma_member']=$member;$loan['_alma_primary_id']=$patronId;$out[]=$loan;}
@@ -141,9 +142,9 @@ function alma_lookup_account_loans(string $patronId,string $member): array {
  }
  return $out;
 }
-function alma_lookup_patron_network_loans(array $patron,string $homeMember): array {
+function alma_lookup_patron_network_loans(array $patron,string $homeMember,string $loanStatus='Active',int $maxRows=1000): array {
  $out=[];
- foreach(alma_lookup_linked_accounts($patron,$homeMember) as $account)$out=array_merge($out,alma_lookup_account_loans((string)$account['primary_id'],(string)$account['institution']));
+ foreach(alma_lookup_linked_accounts($patron,$homeMember) as $account)$out=array_merge($out,alma_lookup_account_loans((string)$account['primary_id'],(string)$account['institution'],$loanStatus,$maxRows));
  return $out;
 }
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
