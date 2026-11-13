@@ -325,6 +325,7 @@ if($case&&can_view_patron_account($case)){
  const status=panel.querySelector(".account-info-status");
  const output=panel.querySelector(".account-info-data");
  const add=(tag,cls,text,parent)=>{const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined)node.textContent=text;parent.append(node);return node;};
+ const displayDate=value=>{if(!value)return "—";const date=new Date(value);return Number.isNaN(date.getTime())?value:date.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"});};
  const render=(data)=>{
   const summary=add("dl","patron-summary-grid",undefined,output);
   [["Full name",data.full_name],["Primary ID",data.primary_id],["Email address",data.email],["Institution",data.institution]].forEach(([label,value])=>{add("dt","",label,summary);add("dd","",value||"—",summary);});
