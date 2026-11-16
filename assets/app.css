@@ -71,3 +71,4 @@ h1.has-ui-icon .heading-icon,h2.has-ui-icon .heading-icon,h3.has-ui-icon .headin
 .patron-item-status-icon.checked-in{background:#dff3e6;color:#16734c}
 .patron-item-status-icon.checked-out{background:#ffe4a3;color:#805400}
 .patron-item-status-icon.missing{background:#f8c9c4;color:#a42318}
+.login-links{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}.login-links .button{display:flex;align-items:center;justify-content:center;padding:10px 8px;font-size:13px;text-align:center;white-space:nowrap}
