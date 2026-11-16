@@ -33,11 +33,11 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     $recipientQuery->execute([$institutionId]);$recipients=array_values(array_unique(array_filter(array_map('trim',$recipientQuery->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
     if(!$recipients)$recipients=array_values(array_unique(array_filter(array_map('trim',db()->query("SELECT email FROM users WHERE role='admin' AND active=1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
     if($recipients){
-     $from=envv('MAIL_FROM','claims@localhost');$fromName=str_replace(["\\r","\\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
-     $subject='Claims Returned account request: '.str_replace(["\\r","\\n"],' ',(string)$institution['name']);
-     $body="A user has requested access to Claims Returned.\\n\\nName: {$name}\\nEmail: {$email}\\nInstitution: {$institution['name']}\\n\\nPlease contact the requester to follow up and create an account if appropriate.";
+     $from=envv('MAIL_FROM','claims@localhost');$fromName=str_replace(["\r","\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
+     $subject='Claims Returned account request: '.str_replace(["\r","\n"],' ',(string)$institution['name']);
+     $body="A user has requested access to Claims Returned.\n\nName: {$name}\nEmail: {$email}\nInstitution: {$institution['name']}\n\nPlease contact the requester to follow up and create an account if appropriate.";
      $headers=['From: '.$fromName.' <'.$from.'>','Reply-To: '.$email,'Content-Type: text/plain; charset=UTF-8'];
-     foreach($recipients as $recipient)@mail($recipient,$subject,$body,implode("\\\\r\\\\n",$headers));
+     foreach($recipients as $recipient)@mail($recipient,$subject,$body,implode("\r\n",$headers));
     }
    }
    $_SESSION['account_request_last_sent']=time();$success=true;
