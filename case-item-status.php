@@ -11,8 +11,3 @@ if(!$case){http_response_code(404);echo json_encode(['ok'=>false,'error'=>'Case 
 if(!can_edit()||!can_view_patron_account($case)){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Access denied.']);exit;}
 
 echo json_encode(['ok'=>true,'data'=>alma_case_patron_item_status($case)],JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
-    exit;
-}
-$patron=$lookup['data'];
-$member=(string)($patron['_alma_member']??$case['institution_slug']);
-echo json_encode(['ok'=>true,'data'=>alma_case_patron_item_status($case,$patron,$member)],JSON_UNESCAPED_UNICODE|JSON_INVALID_UTF8_SUBSTITUTE);
