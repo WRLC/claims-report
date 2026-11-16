@@ -17,7 +17,7 @@ session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>filter_var(getenv
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 date_default_timezone_set(envv('APP_TIMEZONE','America/New_York'));
 function envv(string $key,string $default=''): string { return trim((string)(getenv($key)!==false?getenv($key):$default)); }
-function app_url(): string { return 'https://wrshields.wrlc2k.wrlc.org/api/claims-report'; }
+function app_url(): string { return rtrim(envv('APP_URL', ''), '/'); }
 function h(mixed $v): string { return htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
 function institution_label(string $name): string { return strcasecmp(trim($name),'scf')===0?'WRLC':$name; }
 function case_type_key(string $type): string { return match(strtolower(trim($type))){'local'=>'local','cls'=>'cls','p2p'=>'p2p','ill'=>'ill',default=>'unconfirmed'}; }
