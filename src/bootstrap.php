@@ -365,17 +365,40 @@ function alma_note_email_statuses(array $notes,string $patronId): array {
   else continue;
   if(preg_match('/Case:\\s*([A-Z0-9]{12})/i',$text,$match))$references[$index]=strtoupper($match[1]);
  }
- $emailsByCase=[];
+ $emailsByNote=[];
  if($references){
   $publicIds=array_values(array_unique(array_values($references)));$marks=implode(',',array_fill(0,count($publicIds),'?'));
-  $q=db()->prepare("SELECT c.public_id,n.template_key,n.status,n.recipient FROM claims_cases c JOIN notification_log n ON n.case_id=c.id WHERE c.patron_primary_id=? AND c.public_id IN ($marks) AND n.template_key IN ('milestone','partner_request') ORDER BY n.created_at DESC");
+  $q=db()->prepare("SELECT c.public_id,n.template_key,n.status,n.recipient,n.created_at FROM claims_cases c JOIN notification_log n ON n.case_id=c.id WHERE c.patron_primary_id=? AND c.public_id IN ($marks) AND n.template_key IN ('milestone','partner_request') ORDER BY n.created_at");
   $q->execute(array_merge([$patronId],$publicIds));
-  foreach($q->fetchAll() as $email)$emailsByCase[(string)$email['public_id']][]=$email;
+  foreach($q->fetchAll() as $email){
+   $candidates=[];$emailTime=strtotime((string)($email['created_at']??''));
+   foreach($references as $index=>$publicId){
+    if($publicId!==(string)$email['public_id'])continue;
+    if($email['template_key']==='partner_request'&&$noteKinds[$index]!=='opening')continue;
+    $noteTime=strtotime((string)($notes[$index]['created_date']??''));
+    $distance=($emailTime!==false&&$noteTime!==false)?abs($emailTime-$noteTime):null;
+    if($distance!==null&&$distance>86400)continue;
+    $candidates[$index]=$distance;
+   }
+   if(!$candidates)continue;
+   uasort($candidates,static function(?int $a,?int $b): int {
+    if($a===null)return $b===null?0:1;
+    if($b===null)return -1;
+    return $a<=>$b;
+   });
+   $index=(int)array_key_first($candidates);
+   $emailsByNote[$index][]=$email;
+  }
  }
  $statuses=[];
  foreach($notes as $index=>$note){
-  $reference=$references[$index]??'';$sent=[];$failed=[];
-  foreach($emailsByCase[$reference]??[] as $email){$recipient=trim((string)$email['recipient']);$kind=$email['template_key']==='partner_request'?'partner':'patron';if($kind==='partner'&&($noteKinds[$index]??'')!=='opening')continue;$label=$kind==='partner'?'Emailed to partner email':'Emailed to patron';$entry=$label.($recipient!==''?': '.$recipient:'');if($email['status']==='sent')$sent[$kind][$recipient]=$entry;else$failed[$kind][$recipient]=($kind==='partner'?'Partner email failed':'Patron email failed').($recipient!==''?': '.$recipient:'');}
+  $sent=[];$failed=[];
+  foreach($emailsByNote[$index]??[] as $email){
+   $recipient=trim((string)$email['recipient']);$kind=$email['template_key']==='partner_request'?'partner':'patron';
+   $label=$kind==='partner'?'Emailed to partner email':'Emailed to patron';$entry=$label.($recipient!==''?': '.$recipient:'');
+   if($email['status']==='sent')$sent[$kind][$recipient]=$entry;
+   else $failed[$kind][$recipient]=($kind==='partner'?'Partner email failed':'Patron email failed').($recipient!==''?': '.$recipient:'');
+  }
   $lines=[];foreach(['patron','partner'] as $kind)foreach($sent[$kind]??[] as $entry)$lines[]=$entry;
   if(!$lines)$lines[]='Internal update — no emails sent';
   foreach(['patron','partner'] as $kind)foreach($failed[$kind]??[] as $entry)$lines[]=$entry;
