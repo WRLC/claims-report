@@ -39,7 +39,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     $body="A user has requested access to Claims Returned.\n\nName: {$name}\nEmail: {$email}\nInstitution: {$institution['name']}\n\nPlease contact the requester to follow up and create an account if appropriate.";
     $headers=['From: '.$fromName.' <'.$from.'>','Reply-To: '.$email,'Content-Type: text/plain; charset=UTF-8'];
     $sentCount=0;
-    foreach($recipients as $recipient)if(@mail($recipient,$subject,$body,implode("\\r\\n",$headers)))$sentCount++;
+    foreach($recipients as $recipient)if(@mail($recipient,$subject,$body,implode("\r\n",$headers)))$sentCount++;
     if($sentCount>0){
      $_SESSION['account_request_last_sent']=time();
      $success=true;
@@ -53,7 +53,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 
 render_start('Request User Account');
 echo '<section class="login card"><h1>Request User Account</h1><p>Submit your details and the appropriate account administrator will follow up with you.</p>';
-if($success)echo '<div class="flash">Your account request has been sent. The appropriate administrator will contact you at '.h($email).'.</div>';
+if($success)echo '<div class="flash">Your account request has been sent to the appropriate administrator.</div>';
 if($error!=='')echo '<div class="flash error">'.h($error).'</div>';
 if(!$success){
  echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Name<input type="text" name="name" value="'.h($name).'" maxlength="160" autocomplete="name" required></label><label>Email address<input type="email" name="email" value="'.h($email).'" maxlength="254" autocomplete="email" required></label><label>Institution<select name="institution_id" required><option value="">Select your institution</option>';
