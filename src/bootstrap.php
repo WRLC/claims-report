@@ -366,6 +366,26 @@ function notify_case_assignee(array $case,array $assignee): array {
  $ok=@mail($to,'Claims Returned case assigned: '.$case['item_title'],$body,implode("\r\n",$headers));
  return save_notification((int)$case['id'],'email',$to,'staff_assignment',$ok,$ok?'':'mail() rejected the message.');
 }
+function send_password_reset_link(string $email): bool {
+ $q=db()->prepare('SELECT id,email,display_name FROM users WHERE email=? AND active=1 LIMIT 1');$q->execute([strtolower(trim($email))]);$account=$q->fetch();
+ if(!$account)return false;
+ $token=bin2hex(random_bytes(32));$tokenHash=hash('sha256',$token);$pdo=db();
+ $pdo->beginTransaction();
+ try{
+  $pdo->exec('DELETE FROM password_reset_tokens WHERE expires_at<=UTC_TIMESTAMP() OR used_at IS NOT NULL');
+  $remove=$pdo->prepare('DELETE FROM password_reset_tokens WHERE user_id=?');$remove->execute([(int)$account['id']]);
+  $save=$pdo->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES(?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR))');$save->execute([(int)$account['id'],$tokenHash]);
+  $pdo->commit();
+ }catch(Throwable $error){if($pdo->inTransaction())$pdo->rollBack();throw $error;}
+ $displayName=trim(str_replace(["\\r","\\n"],' ',(string)$account['display_name']));
+ $from=envv('MAIL_FROM','claims@localhost');$fromName=str_replace(["\\r","\\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
+ $url=app_url().'/reset-password.php?token='.rawurlencode($token);
+ $body="Hello {$displayName},\n\nSomeone requested a password reset for your Claims Returned account. Verify your email address and choose a new password using this one-time link:\n\n{$url}\n\nThe link expires in one hour. If you did not request this, you can ignore this message; your password will not change.";
+ $headers=['From: '.$fromName.' <'.$from>,'Content-Type: text/plain; charset=UTF-8'];
+ if(@mail((string)$account['email'],'Reset your Claims Returned password',$body,implode("\\r\\n",$headers)))return true;
+ $removeToken=$pdo->prepare('DELETE FROM password_reset_tokens WHERE token_hash=?');$removeToken->execute([$tokenHash]);
+ return false;
+}
 function alma_note_email_statuses(array $notes,string $patronId): array {
  $references=[];$noteKinds=[];
  foreach($notes as $index=>$note){
