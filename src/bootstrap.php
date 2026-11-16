@@ -12,6 +12,11 @@ if(is_readable($claimsEnvFile)){
   putenv($key.'='.$value);$_ENV[$key]=$value;$_SERVER[$key]=$value;
  }
 }
+$claimsSessionPath=envv('CLAIMS_SESSION_PATH','/var/lib/claims-report/sessions');
+if(is_dir($claimsSessionPath)&&is_writable($claimsSessionPath)){
+ session_save_path($claimsSessionPath);
+ ini_set('session.gc_maxlifetime','604800');
+}
 session_name('claims_session');
 session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>filter_var(getenv('SESSION_SECURE')?:'false',FILTER_VALIDATE_BOOLEAN),'httponly'=>true,'samesite'=>'Lax']);
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
@@ -43,6 +48,13 @@ function csrf_check(): void { if(!hash_equals((string)($_SESSION['csrf']??''),(s
 function logged_in(): bool { return isset($_SESSION['user']['id']); }
 function require_login(): void {
  if(!logged_in()){header('Location: login.php');exit;}
+ $now=time();$lastActivity=(int)($_SESSION['last_activity']??0);
+ if($lastActivity>0&&$now-$lastActivity>=7200){
+  $_SESSION=[];session_regenerate_id(true);
+  $_SESSION['flash']=['Your account session expired after two hours without activity. Please sign in again.','error'];
+  header('Location: login.php');exit;
+ }
+ $_SESSION['last_activity']=$now;
  $q=db()->prepare('SELECT u.id,u.institution_id,u.email,u.display_name,u.role,u.active,i.name institution_name,i.slug institution_slug,i.active institution_active,i.search_interval_days FROM users u JOIN institutions i ON i.id=u.institution_id WHERE u.id=? LIMIT 1');
  $q->execute([user()['id']]);$fresh=$q->fetch();
  if(!$fresh||!$fresh['active']||!$fresh['institution_active']){$_SESSION=[];session_destroy();header('Location: login.php');exit;}
