@@ -34,8 +34,8 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
     $error='We could not route your request right now. Please contact your institution administrator.';
    }else{
     $from=envv('MAIL_FROM','claims@localhost');
-    $fromName=str_replace(["\\r","\\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
-    $subject='Claims Returned account request: '.str_replace(["\\r","\\n"],' ',(string)$institution['name']);
+    $fromName=str_replace(["\r","\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
+    $subject='Claims Returned account request: '.str_replace(["\r","\n"],' ',(string)$institution['name']);
     $body="A user has requested access to Claims Returned.\n\nName: {$name}\nEmail: {$email}\nInstitution: {$institution['name']}\n\nPlease contact the requester to follow up and create an account if appropriate.";
     $headers=['From: '.$fromName.' <'.$from.'>','Reply-To: '.$email,'Content-Type: text/plain; charset=UTF-8'];
     $sentCount=0;
