@@ -46,7 +46,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
 }
 
 render_start('Request User Account');
-echo '<section class="login card"><h1>Request User Account</h1><p>Submit your details and the appropriate account administrator will follow up with you.</p>';
+echo '<section class="login card"><h1>Request User Account</h1><p>If your email is already attached to an active account, we will send a link to verify ownership and update its password. Otherwise, your request goes to the selected institution’s Super User or an administrator.</p>';
 if($success)echo '<div class="flash">If an active account already uses this email, check your inbox for a link to verify ownership and reset your password. Otherwise, your request has been sent for administrator review.</div>';
 if($error!=='')echo '<div class="flash error">'.h($error).'</div>';
 if(!$success){
