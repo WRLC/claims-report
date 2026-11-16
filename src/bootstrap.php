@@ -75,8 +75,8 @@ function alma_request(string $slug,string $path,string $method='GET',?array $pay
  if(!$last['ok']&&$last['error']==='')$last['error']=(string)($last['data']['errorList']['error'][0]['errorMessage']??'Alma request failed (HTTP '.$last['status'].').');return $last;
 }
 function alma_lookup_user(string $slug,string $id): array {
- $members=array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))));$last=['ok'=>false,'status'=>404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
- foreach($members as $member){$r=alma_request($member,'/users/'.rawurlencode($id).'?user_id_type=all_unique&view=full&expand=none');if($r['ok']){if(is_array($r['data']))$r['data']['_alma_member']=$member;return $r;}$last=$r;}
+ $members=array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))));$ordered=[];if($slug!==''&&in_array($slug,$members,true))$ordered[]=$slug;foreach($members as $member)if(!in_array($member,$ordered,true))$ordered[]=$member;$last=['ok'=>false,'status'=>404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
+ foreach($ordered as $member){$r=alma_request($member,'/users/'.rawurlencode($id).'?user_id_type=all_unique&view=full&expand=none');if($r['ok']){if(is_array($r['data']))$r['data']['_alma_member']=$member;return $r;}$last=$r;}
  return ['ok'=>false,'status'=>$last['status']?:404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
 }
 function alma_lookup_item(string $slug,string $barcode): array {
