@@ -25,35 +25,29 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
   if(!$institution){
    $error='Choose an active institution from the list.';
   }else{
-   $recipientQuery=db()->prepare("SELECT email FROM users WHERE institution_id=? AND role='super_user' AND active=1 ORDER BY id");
-   $recipientQuery->execute([$institutionId]);$recipients=array_values(array_unique(array_filter(array_map('trim',$recipientQuery->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
-   if(!$recipients){
-    $recipients=array_values(array_unique(array_filter(array_map('trim',db()->query("SELECT email FROM users WHERE role='admin' AND active=1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
-   }
-   if(!$recipients){
-    $error='We could not route your request right now. Please contact your institution administrator.';
+   $existingQuery=db()->prepare('SELECT id,active FROM users WHERE email=? LIMIT 1');$existingQuery->execute([$email]);$existing=$existingQuery->fetch();
+   if($existing){
+    if($existing['active'])send_password_reset_link($email);
    }else{
-    $from=envv('MAIL_FROM','claims@localhost');
-    $fromName=str_replace(["\r","\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
-    $subject='Claims Returned account request: '.str_replace(["\r","\n"],' ',(string)$institution['name']);
-    $body="A user has requested access to Claims Returned.\n\nName: {$name}\nEmail: {$email}\nInstitution: {$institution['name']}\n\nPlease contact the requester to follow up and create an account if appropriate.";
-    $headers=['From: '.$fromName.' <'.$from.'>','Reply-To: '.$email,'Content-Type: text/plain; charset=UTF-8'];
-    $sentCount=0;
-    foreach($recipients as $recipient)if(@mail($recipient,$subject,$body,implode("\r\n",$headers)))$sentCount++;
-    if($sentCount>0){
-     $_SESSION['account_request_last_sent']=time();
-     $success=true;
-    }else{
-     $error='We could not send your request right now. Please try again later or contact your institution administrator.';
+    $recipientQuery=db()->prepare("SELECT email FROM users WHERE institution_id=? AND role='super_user' AND active=1 ORDER BY id");
+    $recipientQuery->execute([$institutionId]);$recipients=array_values(array_unique(array_filter(array_map('trim',$recipientQuery->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
+    if(!$recipients)$recipients=array_values(array_unique(array_filter(array_map('trim',db()->query("SELECT email FROM users WHERE role='admin' AND active=1 ORDER BY id")->fetchAll(PDO::FETCH_COLUMN)),static fn(string $address): bool=>(bool)filter_var($address,FILTER_VALIDATE_EMAIL))));
+    if($recipients){
+     $from=envv('MAIL_FROM','claims@localhost');$fromName=str_replace(["\\r","\\n"],' ',envv('MAIL_FROM_NAME','WRLC Claims Returned'));
+     $subject='Claims Returned account request: '.str_replace(["\\r","\\n"],' ',(string)$institution['name']);
+     $body="A user has requested access to Claims Returned.\\n\\nName: {$name}\\nEmail: {$email}\\nInstitution: {$institution['name']}\\n\\nPlease contact the requester to follow up and create an account if appropriate.";
+     $headers=['From: '.$fromName.' <'.$from.'>','Reply-To: '.$email,'Content-Type: text/plain; charset=UTF-8'];
+     foreach($recipients as $recipient)@mail($recipient,$subject,$body,implode("\\\\r\\\\n",$headers));
     }
    }
+   $_SESSION['account_request_last_sent']=time();$success=true;
   }
  }
 }
 
 render_start('Request User Account');
 echo '<section class="login card"><h1>Request User Account</h1><p>Submit your details and the appropriate account administrator will follow up with you.</p>';
-if($success)echo '<div class="flash">Your account request has been sent to the appropriate administrator.</div>';
+if($success)echo '<div class="flash">If an active account already uses this email, check your inbox for a link to verify ownership and reset your password. Otherwise, your request has been sent for administrator review.</div>';
 if($error!=='')echo '<div class="flash error">'.h($error).'</div>';
 if(!$success){
  echo '<form method="post"><input type="hidden" name="_csrf" value="'.h(csrf_token()).'"><label>Name<input type="text" name="name" value="'.h($name).'" maxlength="160" autocomplete="name" required></label><label>Email address<input type="email" name="email" value="'.h($email).'" maxlength="254" autocomplete="email" required></label><label>Institution<select name="institution_id" required><option value="">Select your institution</option>';
