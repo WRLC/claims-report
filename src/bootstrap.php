@@ -358,10 +358,12 @@ function alma_note_email_statuses(array $notes,string $patronId): array {
  $references=[];$noteKinds=[];
  foreach($notes as $index=>$note){
   $text=(string)($note['text']??$note['note_text']??'');
-  if(str_starts_with(strtolower($text),'we have opened a claims returned search'))$noteKinds[$index]='opening';
-  elseif(str_starts_with(strtolower($text),'the item was found during search')||str_starts_with(strtolower($text),'the item was not found after four searches'))$noteKinds[$index]='closure';
+  $normalizedText=mb_strtolower(trim($text),'UTF-8');
+  if(str_starts_with($normalizedText,'we have opened a claims returned search')||str_starts_with($normalizedText,'thank you for letting us know you’re having trouble locating this item'))$noteKinds[$index]='opening';
+  elseif(str_starts_with($normalizedText,'the item was found during search')||str_starts_with($normalizedText,'the item was not found after four searches')||str_starts_with($normalizedText,'good news—we found your item')||str_starts_with($normalizedText,'thank you for your patience while we searched for your item'))$noteKinds[$index]='closure';
+  elseif(str_starts_with($normalizedText,'the claims returned case has been reopened'))$noteKinds[$index]='reopened';
   else continue;
-  if(preg_match('/Case:\s*([A-Z0-9]{12})/i',$text,$match))$references[$index]=strtoupper($match[1]);
+  if(preg_match('/Case:\\s*([A-Z0-9]{12})/i',$text,$match))$references[$index]=strtoupper($match[1]);
  }
  $emailsByCase=[];
  if($references){
