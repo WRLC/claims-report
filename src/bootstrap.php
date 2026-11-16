@@ -84,9 +84,9 @@ function alma_lookup_item(string $slug,string $barcode): array {
  foreach($ordered as $member)foreach($variants as $candidate){$r=alma_request($member,'/items?item_barcode='.rawurlencode($candidate));if($r['ok']){if(is_array($r['data']))$r['data']['_alma_member']=$member;return $r;}$last=$r;}
  return ['ok'=>false,'status'=>$last['status']?:404,'data'=>null,'error'=>'No items found for barcode '.$input.'.'];
 }
-function alma_item_checkin_status(array $case): array {
+function alma_item_checkin_status(array $case,?array $lookup=null): array {
  $barcode=trim((string)($case['item_barcode']??''));if($barcode==='')return ['ok'=>false,'state'=>'unknown','label'=>'Unable to verify','message'=>'This case has no item barcode.'];
- $lookup=alma_lookup_item((string)$case['institution_slug'],$barcode);if(!$lookup['ok'])return ['ok'=>false,'state'=>'unknown','label'=>'Unable to verify','message'=>'Alma item lookup failed: '.($lookup['error']??'unknown API error')];
+ $lookup=$lookup??alma_lookup_item((string)$case['institution_slug'],$barcode);if(!$lookup['ok'])return ['ok'=>false,'state'=>'unknown','label'=>'Unable to verify','message'=>'Alma item lookup failed: '.($lookup['error']??'unknown API error')];
  $item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];$data=is_array($item)?($item['item_data']??$item):[];
  $value=static function(mixed $field): string { if(is_array($field))return trim((string)($field['desc']??$field['value']??''));return trim((string)$field); };
  $base=$value($data['base_status']??'');$process=$value($data['process_type']??'');$normalized=strtolower($base);$processNormalized=strtolower($process);$statusText=strtolower(str_replace(['_','-'], ' ', $base.' '.$process));
@@ -148,16 +148,42 @@ function alma_lookup_patron_network_loans(array $patron,string $homeMember,strin
  foreach(alma_lookup_linked_accounts($patron,$homeMember) as $account)$out=array_merge($out,alma_lookup_account_loans((string)$account['primary_id'],(string)$account['institution'],$loanStatus,$maxRows));
  return $out;
 }
-function alma_case_patron_item_status(array $case,array $patron,string $member): array {
- $status=alma_item_checkin_status($case);$barcode=strtolower(trim((string)($case['item_barcode']??'')));
+function alma_item_loan_for_status(array $itemLookup): array {
+ $item=$itemLookup['data']['item']??$itemLookup['data']??[];
+ if(is_array($item)&&array_is_list($item))$item=$item[0]??[];
+ if(!is_array($item))return ['ok'=>false,'data'=>null];
+ $itemData=$item['item_data']??$item;
+ $mmsId=trim((string)($item['bib_data']['mms_id']??$itemData['mms_id']??''));
+ $holdingId=trim((string)($item['holding_data']['holding_id']??$itemData['holding_id']??''));
+ $itemId=trim((string)($item['item_data']['pid']??$item['pid']??''));
+ $member=(string)($itemLookup['data']['_alma_member']??'');
+ if($mmsId===''||$holdingId===''||$itemId===''||$member==='')return ['ok'=>false,'data'=>null];
+ $path='/bibs/'.rawurlencode($mmsId).'/holdings/'.rawurlencode($holdingId).'/items/'.rawurlencode($itemId).'/loans?limit=10&offset=0&loan_status=Active';
+ $result=alma_request($member,$path);
+ if(!$result['ok']||!is_array($result['data']))return ['ok'=>false,'data'=>null];
+ $loans=$result['data']['item_loan']??$result['data']['loan']??$result['data'];
+ if(isset($loans['loan_id'])||isset($loans['user_id']))$loans=[$loans];
+ foreach((array)$loans as $loan)if(is_array($loan))return ['ok'=>true,'data'=>$loan,'member'=>$member];
+ return ['ok'=>true,'data'=>null,'member'=>$member];
+}
+function alma_case_patron_item_status(array $case): array {
+ $barcode=strtolower(trim((string)($case['item_barcode']??'')));
+ if($barcode==='')return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'This case has no item barcode.'];
+ $lookup=alma_lookup_item((string)$case['institution_slug'],(string)$case['item_barcode']);
+ $status=alma_item_checkin_status($case,$lookup);
  if(($status['state']??'')==='missing')return ['state'=>'missing','checkin_date'=>'','due_date'=>'','message'=>'Alma reports the item as missing.'];
- if(($status['state']??'')==='checked_in'){
-  $checkinDate=(string)($status['checkin_date']??'');
-  if($checkinDate===''&&$barcode!=='')foreach(alma_lookup_patron_network_loans($patron,$member,'Complete',100) as $loan){$loanBarcode=strtolower(trim((string)($loan['item_barcode']??$loan['barcode']??'')));if($loanBarcode!==''&&$loanBarcode===$barcode){$checkinDate=(string)($loan['return_date']??'');break;}}
-  return ['state'=>'checked_in','checkin_date'=>$checkinDate,'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
+ if(($status['state']??'')==='checked_in')return ['state'=>'checked_in','checkin_date'=>(string)($status['checkin_date']??''),'due_date'=>'','message'=>'Alma reports that the item is checked in.'];
+ if(($status['state']??'')==='checked_out'){
+  $loan=alma_item_loan_for_status($lookup);$loanData=$loan['data']??null;
+  $loanBarcode=strtolower(trim((string)($loanData['item_barcode']??$loanData['barcode']??$barcode)));
+  $loanUser=trim((string)($loanData['user_id']??$loanData['primary_id']??''));
+  $caseUser=trim((string)($case['patron_primary_id']??''));
+  if($loanBarcode===$barcode&&$loanUser!==''&&hash_equals($caseUser,$loanUser))return ['state'=>'checked_out','checkin_date'=>'','due_date'=>(string)($loanData['due_date']??''),'message'=>'Alma shows this item on the patron’s active account.'];
+  if($loanBarcode===$barcode&&$loanUser!==''&&strcasecmp((string)($loan['member']??''),(string)$case['institution_slug'])===0)return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma reports that the item is on loan to a different patron account.'];
+  $loans=alma_lookup_account_loans($caseUser,(string)$case['institution_slug'],'Active',100);
+  foreach($loans as $accountLoan){$accountBarcode=strtolower(trim((string)($accountLoan['item_barcode']??$accountLoan['barcode']??'')));if($accountBarcode===$barcode)return ['state'=>'checked_out','checkin_date'=>'','due_date'=>(string)($accountLoan['due_date']??''),'message'=>'Alma shows this item on the patron’s active account.'];}
+  return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma reports that the item is on loan but does not show it on this patron’s active account.'];
  }
- if(($status['state']??'')==='checked_out'&&$barcode!=='')foreach(alma_lookup_patron_network_loans($patron,$member) as $loan){$loanBarcode=strtolower(trim((string)($loan['item_barcode']??$loan['barcode']??'')));if($loanBarcode!==''&&$loanBarcode===$barcode)return ['state'=>'checked_out','checkin_date'=>'','due_date'=>(string)($loan['due_date']??''),'message'=>'Alma shows this item on the patron’s active account.'];}
- if(($status['state']??'')==='checked_out')return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>'Alma reports that the item is on loan but does not show it on this patron’s active account.'];
  return ['state'=>'unknown','checkin_date'=>'','due_date'=>'','message'=>$status['message']??'Alma could not confirm the item status.'];
 }
 function alma_value(mixed $value): string { if(is_array($value))return trim((string)($value['value']??$value['code']??$value['desc']??''));return trim((string)$value); }
