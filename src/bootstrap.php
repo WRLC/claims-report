@@ -88,14 +88,17 @@ function alma_request(string $slug,string $path,string $method='GET',?array $pay
 }
 /** Run independent Alma GETs concurrently while preserving input order and response shape. */
 function alma_requests_parallel(array $requests): array {
- $results=array_fill(0,count($requests),['ok'=>false,'status'=>0,'data'=>null,'error'=>'Alma request failed.']);if(!$requests)return $results;
- $multi=curl_multi_init();$handles=[];
- foreach(array_values($requests) as $index=>$request){$slug=(string)($request['slug']??'');$path=(string)($request['path']??'');$key=alma_key($slug);if($key===''){$results[$index]['error']='Alma API is not configured for this member.';continue;}
-  $url=rtrim(envv('ALMA_BASE_URL','https://api-na.hosted.exlibrisgroup.com/almaws/v1'),'/').$path.(str_contains($path,'?')?'&':'?').'apikey='.rawurlencode($key);$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>5]);$handles[$index]=$ch;curl_multi_add_handle($multi,$ch);
- }
- do{$status=curl_multi_exec($multi,$running);if($running)curl_multi_select($multi,0.2);}while($running&&$status===CURLM_OK);
- foreach($handles as $index=>$ch){$body=curl_multi_getcontent($ch);$err=curl_error($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$results[$index]=['ok'=>$err===''&&$http>=200&&$http<300,'status'=>$http,'data'=>json_decode($body?:'',true),'error'=>$err];if(!$results[$index]['ok']&&$err==='')$results[$index]['error']=(string)($results[$index]['data']['errorList']['error'][0]['errorMessage']??'Alma request failed (HTTP '.$http.').');curl_multi_remove_handle($multi,$ch);curl_close($ch);if(!$results[$index]['ok']&&in_array($http,[408,429,500,502,503,504],true))$results[$index]=alma_request((string)$requests[$index]['slug'],(string)$requests[$index]['path']);}
- curl_multi_close($multi);return $results;
+ $requests=array_values($requests);$results=array_fill(0,count($requests),['ok'=>false,'status'=>0,'data'=>null,'error'=>'Alma request failed.']);if(!$requests)return $results;
+ $pending=[];foreach($requests as $index=>$request){if(alma_key((string)($request['slug']??''))==='')$results[$index]['error']='Alma API is not configured for this member.';else $pending[]=$index;}
+ // Keep concurrent lookup fast while avoiding a large burst against Alma's
+ // per-key limits. Retry transient failures together instead of serially.
+ for($round=0;$pending&&$round<3;$round++){$retry=[];foreach(array_chunk($pending,8) as $batch){$multi=curl_multi_init();$handles=[];
+   foreach($batch as $index){$request=$requests[$index];$slug=(string)$request['slug'];$path=(string)$request['path'];$key=alma_key($slug);$url=rtrim(envv('ALMA_BASE_URL','https://api-na.hosted.exlibrisgroup.com/almaws/v1'),'/').$path.(str_contains($path,'?')?'&':'?').'apikey='.rawurlencode($key);$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>5]);$handles[$index]=$ch;curl_multi_add_handle($multi,$ch);}
+   do{$status=curl_multi_exec($multi,$running);if($running)curl_multi_select($multi,0.2);}while($running&&$status===CURLM_OK);
+   foreach($handles as $index=>$ch){$body=curl_multi_getcontent($ch);$err=curl_error($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$results[$index]=['ok'=>$err===''&&$http>=200&&$http<300,'status'=>$http,'data'=>json_decode($body?:'',true),'error'=>$err];if(!$results[$index]['ok']&&$err==='')$results[$index]['error']=(string)($results[$index]['data']['errorList']['error'][0]['errorMessage']??'Alma request failed (HTTP '.$http.').');curl_multi_remove_handle($multi,$ch);curl_close($ch);if(!$results[$index]['ok']&&in_array($http,[408,429,500,502,503,504],true)&&$round<2)$retry[]=$index;}
+   curl_multi_close($multi);
+  }$pending=$retry;if($pending&&$round<2)usleep(250000*(2**$round));}
+ return $results;
 }
 function alma_lookup_user(string $slug,string $id): array {
  $members=array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))));$ordered=[];if($slug!==''&&in_array($slug,$members,true))$ordered[]=$slug;foreach($members as $member)if(!in_array($member,$ordered,true))$ordered[]=$member;$last=['ok'=>false,'status'=>404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
@@ -276,12 +279,12 @@ function alma_partner_contact_email(array $partner): string {
  if(!$choices)return '';
  usort($choices,static fn(array $a,array $b): int=>$a[0]<=>$b[0]);return $choices[0][1];
 }
-function alma_classify_selected_loan(string $patronId,string $homeMember,array $loan,array $item,string $loanMember='',string $loanPatronId=''): array {
+function alma_classify_selected_loan(string $patronId,string $homeMember,array $loan,array $item,string $loanMember='',string $loanPatronId='',?array $prefetchedRequest=null,?array $prefetchedPartner=null): array {
  $requestId=alma_value($loan['request_id']??'');$requestIdPresent=$requestId!=='';$requestOk=false;$hasResourceSharing=false;$request=[];$partner=[];$profile='';
  $requestMember=$loanMember?:$homeMember;$requestPatronId=$loanPatronId?:$patronId;
- if($requestIdPresent){$requestResult=alma_request($requestMember,'/users/'.rawurlencode($requestPatronId).'/requests/'.rawurlencode($requestId));$requestOk=$requestResult['ok']&&is_array($requestResult['data']);if($requestOk){$request=$requestResult['data'];$resourceSharing=$request['resource_sharing']??[];$hasResourceSharing=is_array($resourceSharing)?!empty($resourceSharing):trim((string)$resourceSharing)!=='';}}
+ if($requestIdPresent){$requestResult=$prefetchedRequest??alma_request($requestMember,'/users/'.rawurlencode($requestPatronId).'/requests/'.rawurlencode($requestId));$requestOk=$requestResult['ok']&&is_array($requestResult['data']);if($requestOk){$request=$requestResult['data'];$resourceSharing=$request['resource_sharing']??[];$hasResourceSharing=is_array($resourceSharing)?!empty($resourceSharing):trim((string)$resourceSharing)!=='';}}
  $resourceSharing=$request['resource_sharing']??[];$partnerCode=alma_value(is_array($resourceSharing)?($resourceSharing['partner']??''):'');
- if($hasResourceSharing&&$partnerCode!==''){$partnerResult=alma_request($requestMember,'/partners/'.rawurlencode($partnerCode));if($partnerResult['ok']&&is_array($partnerResult['data'])){$partner=$partnerResult['data']['partner']??$partnerResult['data'];$details=$partner['partner_details']??[];$profile=alma_value($details['profile_details']['profile_type']??'');}}
+ if($hasResourceSharing&&$partnerCode!==''){$partnerResult=$prefetchedPartner??alma_request($requestMember,'/partners/'.rawurlencode($partnerCode));if($partnerResult['ok']&&is_array($partnerResult['data'])){$partner=$partnerResult['data']['partner']??$partnerResult['data'];$details=$partner['partner_details']??[];$profile=alma_value($details['profile_details']['profile_type']??'');}}
  $itemMember=(string)($item['_alma_member']??$item['item_data']['_alma_member']??'');
  $classification=alma_classify_loan_evidence($homeMember,$itemMember,$requestIdPresent,$requestOk,$hasResourceSharing,$profile);
  $configured=json_decode(envv('ALMA_PARTNER_CASE_TYPES','{}'),true);if(is_array($configured)&&$partnerCode!==''&&isset($configured[$partnerCode])){$mapped=strtoupper(trim((string)$configured[$partnerCode]));if(in_array($mapped,['LOCAL','CLS','P2P','ILL'],true)){$classification['category']=$mapped==='LOCAL'?'local':$mapped;$classification['status']='confirmed';$classification['reason']='The Alma partner has an explicit ALMA_PARTNER_CASE_TYPES configuration.';}}
@@ -307,16 +310,23 @@ function alma_classify_selected_loan(string $patronId,string $homeMember,array $
  return ['category'=>$classification['category'],'status'=>$classification['status'],'reason'=>$classification['reason'],'is_resource_sharing'=>$classification['is_resource_sharing'],'lending_identifier'=>$lendingIdentifier,'partner_code'=>$partnerCode,'partner_name'=>$partnerName,'partner_email'=>$partnerEmail,'partner_matched'=>(bool)$matched||$itemInstitutionMatched];
 }
 function alma_classify_patron_loans(array $patron,string $homeMember,array $loans): array {
- $homeId=trim((string)($patron['primary_id']??''));
- foreach($loans as $index=>$loan){
-  if(!is_array($loan))continue;
-  $loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);
-  $item=['_alma_member'=>$loanMember];
-  // Always inspect the full item record: Policy/Location may already identify
-  // P2P or ILL on the loan, but institution is needed to select the right
-  // university contact instead of the generic SUNY/ILL fallback.
-  if(trim((string)($loan['item_barcode']??''))!==''){$lookup=alma_lookup_item($loanMember?:$homeMember,(string)$loan['item_barcode']);if($lookup['ok']&&is_array($lookup['data'])){$item=$lookup['data']['item']??$lookup['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];if(!is_array($item))$item=[];$item['_alma_member']=$lookup['data']['_alma_member']??$loanMember;}}
-  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId);
+ $homeId=trim((string)($patron['primary_id']??''));$itemRequests=[];$requestRequests=[];$requestOwners=[];$itemOwners=[];$items=[];$requestResults=[];
+ // Item and request calls depend only on each loan, so submit the whole set
+ // together. This removes the per-loan network round trips from the form wait.
+ foreach($loans as $index=>$loan){if(!is_array($loan))continue;$loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);$barcode=trim((string)($loan['item_barcode']??''));$item=['_alma_member'=>$loanMember];
+  $items[$index]=['item'=>$item,'member'=>$loanMember,'barcode'=>$barcode];
+  if($barcode!==''&&$loanMember!==''){$itemOwners[$index]=count($itemRequests);$itemRequests[]=['slug'=>$loanMember,'path'=>'/items?item_barcode='.rawurlencode($barcode)];}
+  $requestId=alma_value($loan['request_id']??'');if($requestId!==''){$requestOwners[]=$index;$requestRequests[]=['slug'=>$loanMember?:$homeMember,'path'=>'/users/'.rawurlencode($loanId).'/requests/'.rawurlencode($requestId)];}
+ }
+ $allResults=alma_requests_parallel(array_merge($itemRequests,$requestRequests));$requestOffset=count($itemRequests);$fallbackRequests=[];$fallbackOwners=[];$fallbackMembers=[];$configuredMembers=array_values(array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS')))));
+ foreach($items as $index=>$meta){$item=$meta['item'];if(isset($itemOwners[$index])){$result=$allResults[$itemOwners[$index]]??[];if(!empty($result['ok'])&&is_array($result['data'])){$data=$result['data']['item']??$result['data'];if(is_array($data)&&array_is_list($data))$data=$data[0]??[];if(!is_array($data))$data=[];$data['_alma_member']=$meta['member'];$item=$data;}else{$orderedMembers=[];if(in_array($meta['member'],$configuredMembers,true))$orderedMembers[]=$meta['member'];foreach($configuredMembers as $member)if(!in_array($member,$orderedMembers,true))$orderedMembers[]=$member;$variants=[$meta['barcode']];if(strtoupper(substr($meta['barcode'],-1))!=='X')$variants[]=$meta['barcode'].'X';$withoutX=preg_replace('/x$/i','',$meta['barcode']);if($withoutX!==''&&$withoutX!==$meta['barcode'])$variants[]=$withoutX;$variants=array_values(array_unique($variants));foreach($orderedMembers as $member)foreach($variants as $candidate){if($member===$meta['member']&&$candidate===$meta['barcode'])continue;$fallbackOwners[]= $index;$fallbackMembers[]=$member;$fallbackRequests[]=['slug'=>$member,'path'=>'/items?item_barcode='.rawurlencode($candidate)];}}}$items[$index]['resolved']=$item;}
+ $fallbackResults=alma_requests_parallel($fallbackRequests);$resolvedFallback=[];foreach($fallbackOwners as $position=>$owner){if(isset($resolvedFallback[$owner]))continue;$result=$fallbackResults[$position]??[];if(empty($result['ok'])||!is_array($result['data']))continue;$item=$result['data']['item']??$result['data'];if(is_array($item)&&array_is_list($item))$item=$item[0]??[];if(!is_array($item))$item=[];$item['_alma_member']=$fallbackMembers[$position];$resolvedFallback[$owner]=$item;}
+ foreach($resolvedFallback as $owner=>$item)$items[$owner]['resolved']=$item;
+ foreach($requestOwners as $position=>$owner)$requestResults[$owner]=$allResults[$requestOffset+$position]??['ok'=>false,'data'=>null];
+ $partnerRequests=[];$partnerOwners=[];foreach($requestResults as $owner=>$result){if(empty($result['ok'])||!is_array($result['data']))continue;$resourceSharing=$result['data']['resource_sharing']??[];$partnerCode=alma_value(is_array($resourceSharing)?($resourceSharing['partner']??''):'');if($partnerCode==='')continue;$loan=$loans[$owner];$member=(string)($loan['_alma_member']??$homeMember);$partnerRequests[]=['slug'=>$member,'path'=>'/partners/'.rawurlencode($partnerCode)];$partnerOwners[]=$owner;}
+ $partnerResults=alma_requests_parallel($partnerRequests);$partners=[];foreach($partnerOwners as $position=>$owner)$partners[$owner]=$partnerResults[$position]??['ok'=>false,'data'=>null];
+ foreach($loans as $index=>$loan){if(!is_array($loan))continue;$loanMember=(string)($loan['_alma_member']??$homeMember);$loanId=(string)($loan['_alma_primary_id']??$homeId);$item=$items[$index]['resolved']??['_alma_member'=>$loanMember];
+  $classification=alma_classify_selected_loan($homeId,$homeMember,$loan,$item,$loanMember,$loanId,$requestResults[$index]??null,$partners[$index]??null);
   $category=$classification['category'];
   if($loanMember!==''&&$homeMember!==''&&strcasecmp($loanMember,$homeMember)!==0&&!in_array($category,['P2P','ILL'],true))$category='CLS';
   $classification['category']=$category;
