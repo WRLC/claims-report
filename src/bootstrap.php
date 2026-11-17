@@ -86,9 +86,21 @@ function alma_request(string $slug,string $path,string $method='GET',?array $pay
  do{$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_HTTPHEADER=>$headers,CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>5]);if($payload!==null)curl_setopt($ch,CURLOPT_POSTFIELDS,json_encode($payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));$body=curl_exec($ch);$err=curl_error($ch);$status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);curl_close($ch);$last=['ok'=>$err===''&&$status>=200&&$status<300,'status'=>$status,'data'=>json_decode($body?:'',true),'error'=>$err?:''];if($last['ok']||!in_array($status,[408,429,500,502,503,504],true)||$tries>=2)break;usleep(250000*(2**$tries));$tries++;}while(true);
  if(!$last['ok']&&$last['error']==='')$last['error']=(string)($last['data']['errorList']['error'][0]['errorMessage']??'Alma request failed (HTTP '.$last['status'].').');return $last;
 }
+/** Run independent Alma GETs concurrently while preserving input order and response shape. */
+function alma_requests_parallel(array $requests): array {
+ $results=array_fill(0,count($requests),['ok'=>false,'status'=>0,'data'=>null,'error'=>'Alma request failed.']);if(!$requests)return $results;
+ $multi=curl_multi_init();$handles=[];
+ foreach(array_values($requests) as $index=>$request){$slug=(string)($request['slug']??'');$path=(string)($request['path']??'');$key=alma_key($slug);if($key===''){$results[$index]['error']='Alma API is not configured for this member.';continue;}
+  $url=rtrim(envv('ALMA_BASE_URL','https://api-na.hosted.exlibrisgroup.com/almaws/v1'),'/').$path.(str_contains($path,'?')?'&':'?').'apikey='.rawurlencode($key);$ch=curl_init($url);curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>20,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_HTTPHEADER=>['Accept: application/json'],CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>5]);$handles[$index]=$ch;curl_multi_add_handle($multi,$ch);
+ }
+ do{$status=curl_multi_exec($multi,$running);if($running)curl_multi_select($multi,0.2);}while($running&&$status===CURLM_OK);
+ foreach($handles as $index=>$ch){$body=curl_multi_getcontent($ch);$err=curl_error($ch);$http=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);$results[$index]=['ok'=>$err===''&&$http>=200&&$http<300,'status'=>$http,'data'=>json_decode($body?:'',true),'error'=>$err];if(!$results[$index]['ok']&&$err==='')$results[$index]['error']=(string)($results[$index]['data']['errorList']['error'][0]['errorMessage']??'Alma request failed (HTTP '.$http.').');curl_multi_remove_handle($multi,$ch);curl_close($ch);if(!$results[$index]['ok']&&in_array($http,[408,429,500,502,503,504],true))$results[$index]=alma_request((string)$requests[$index]['slug'],(string)$requests[$index]['path']);}
+ curl_multi_close($multi);return $results;
+}
 function alma_lookup_user(string $slug,string $id): array {
  $members=array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))));$ordered=[];if($slug!==''&&in_array($slug,$members,true))$ordered[]=$slug;foreach($members as $member)if(!in_array($member,$ordered,true))$ordered[]=$member;$last=['ok'=>false,'status'=>404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
- foreach($ordered as $member){$r=alma_request($member,'/users/'.rawurlencode($id).'?user_id_type=all_unique&view=full&expand=none');if($r['ok']){if(is_array($r['data']))$r['data']['_alma_member']=$member;return $r;}$last=$r;}
+ $requests=[];foreach($ordered as $member)$requests[]=['slug'=>$member,'path'=>'/users/'.rawurlencode($id).'?user_id_type=all_unique&view=full&expand=none'];$responses=alma_requests_parallel($requests);
+ foreach($ordered as $index=>$member){$r=$responses[$index]??$last;if($r['ok']){if(is_array($r['data']))$r['data']['_alma_member']=$member;return $r;}$last=$r;}
  return ['ok'=>false,'status'=>$last['status']?:404,'data'=>null,'error'=>'User with identifier '.trim($id).' was not found.'];
 }
 function alma_lookup_item(string $slug,string $barcode): array {
@@ -129,10 +141,9 @@ function alma_lookup_linked_accounts(array $patron,string $homeMember): array {
  }
  if($sourceCode==='')return $accounts;
  $members=array_filter(array_map('trim',explode(',',envv('ALMA_MEMBERS'))));
- foreach($members as $member){
-  if($member===$homeMember)continue;
-  $path='/users/'.rawurlencode($sourceLinkId).'?source_institution_code='.rawurlencode($sourceCode);
-  $result=alma_request($member,$path);
+ $lookupMembers=array_values(array_filter($members,static fn($member)=>$member!==$homeMember));$paths=[];foreach($lookupMembers as $member)$paths[]=['slug'=>$member,'path'=>'/users/'.rawurlencode($sourceLinkId).'?source_institution_code='.rawurlencode($sourceCode)];$linkedResults=alma_requests_parallel($paths);
+ foreach($lookupMembers as $index=>$member){
+  $result=$linkedResults[$index]??[];
   if(!$result['ok']||!is_array($result['data']))continue;
   $linked=$result['data'];$linkedId=trim((string)($linked['primary_id']??''));
   if($linkedId==='')continue;
@@ -156,8 +167,10 @@ function alma_lookup_account_loans(string $patronId,string $member,string $loanS
  return $out;
 }
 function alma_lookup_patron_network_loans(array $patron,string $homeMember,string $loanStatus='Active',int $maxRows=1000): array {
- $out=[];
- foreach(alma_lookup_linked_accounts($patron,$homeMember) as $account)$out=array_merge($out,alma_lookup_account_loans((string)$account['primary_id'],(string)$account['institution'],$loanStatus,$maxRows));
+ $accounts=alma_lookup_linked_accounts($patron,$homeMember);$requests=[];$maxRows=max(1,min(1000,$maxRows));$status=in_array(strtolower($loanStatus),['active','complete'],true)?ucfirst(strtolower($loanStatus)):'Active';
+ $pageSize=min(100,$maxRows);foreach($accounts as $account)$requests[]=['slug'=>(string)$account['institution'],'path'=>'/users/'.rawurlencode((string)$account['primary_id']).'/loans?user_id_type=all_unique&limit='.$pageSize.'&offset=0&order_by=id&direction='.($status==='Complete'?'DESC':'ASC').'&loan_status='.$status];
+ $responses=alma_requests_parallel($requests);$out=[];$totals=[];foreach($accounts as $index=>$account){$r=$responses[$index]??[];if(empty($r['ok'])||!is_array($r['data'])){$totals[$index]=0;continue;}$loans=$r['data']['item_loan']??[];if(isset($loans['loan_id']))$loans=[$loans];foreach((array)$loans as $loan)if(is_array($loan)){$loan['_alma_member']=$account['institution'];$loan['_alma_primary_id']=$account['primary_id'];$out[]=$loan;}$totals[$index]=min($maxRows,(int)($r['data']['total_record_count']??count((array)$loans)));}
+ for($offset=$pageSize;$offset<$maxRows;$offset+=$pageSize){$more=[];$owners=[];foreach($accounts as $index=>$account)if($offset<$totals[$index]){$more[]=['slug'=>(string)$account['institution'],'path'=>'/users/'.rawurlencode((string)$account['primary_id']).'/loans?user_id_type=all_unique&limit='.$pageSize.'&offset='.$offset.'&order_by=id&direction='.($status==='Complete'?'DESC':'ASC').'&loan_status='.$status];$owners[]=$index;}if(!$more)break;$pages=alma_requests_parallel($more);foreach($owners as $i=>$owner){$r=$pages[$i]??[];if(empty($r['ok'])||!is_array($r['data']))continue;$loans=$r['data']['item_loan']??[];if(isset($loans['loan_id']))$loans=[$loans];$account=$accounts[$owner];foreach((array)$loans as $loan)if(is_array($loan)){$loan['_alma_member']=$account['institution'];$loan['_alma_primary_id']=$account['primary_id'];$out[]=$loan;}}}
  return $out;
 }
 function alma_item_loan_for_status(array $itemLookup): array {
